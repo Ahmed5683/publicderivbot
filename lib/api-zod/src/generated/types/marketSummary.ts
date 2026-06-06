@@ -9,9 +9,10 @@ import type { SymbolAnalysis } from './symbolAnalysis';
 
 export interface MarketSummary {
   timestamp: string;
-  buy_count: number;
-  sell_count: number;
-  uptrend_count: number;
-  downtrend_count: number;
+  pullback_count: number;
+  bos_count: number;
+  choch_count: number;
+  trending_count: number;
+  consolidation_count: number;
   symbols: SymbolAnalysis[];
 }

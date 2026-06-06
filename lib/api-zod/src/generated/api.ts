@@ -17,23 +17,40 @@ export const HealthCheckResponse = zod.object({
 
 
 /**
- * @summary Get full market analysis for all symbols
+ * @summary Get full market analysis for all symbols (500 candles)
  */
 export const GetMarketAnalysisResponse = zod.object({
   "timestamp": zod.string(),
-  "buy_count": zod.number(),
-  "sell_count": zod.number(),
-  "uptrend_count": zod.number(),
-  "downtrend_count": zod.number(),
+  "pullback_count": zod.number(),
+  "bos_count": zod.number(),
+  "choch_count": zod.number(),
+  "trending_count": zod.number(),
+  "consolidation_count": zod.number(),
   "symbols": zod.array(zod.object({
   "symbol": zod.string(),
   "name": zod.string(),
   "price": zod.number(),
   "volatility": zod.number(),
-  "trend": zod.enum(['UPTREND', 'DOWNTREND']),
-  "ema100": zod.number().optional(),
-  "ema350": zod.number().optional(),
-  "signal": zod.enum(['BUY', 'SELL', 'NONE']),
+  "state": zod.enum(['PULLBACK', 'BOS_CONTINUATION', 'CHoCH_REVERSAL', 'IN_TREND', 'CONSOLIDATION']),
+  "trend": zod.enum(['UPTREND', 'DOWNTREND', 'CONSOLIDATION']),
+  "fractal_count": zod.number(),
+  "support": zod.number().nullish(),
+  "resistance": zod.number().nullish(),
+  "bos_level": zod.number().nullish(),
+  "choch_level": zod.number().nullish(),
+  "description": zod.string(),
+  "structure": zod.object({
+  "trend": zod.enum(['UPTREND', 'DOWNTREND', 'CONSOLIDATION']),
+  "pattern": zod.string().optional(),
+  "last_resistance": zod.number().optional(),
+  "prev_resistance": zod.number().optional(),
+  "last_support": zod.number().optional(),
+  "prev_support": zod.number().optional(),
+  "bos_level": zod.number().optional(),
+  "choch_level": zod.number().optional(),
+  "pullback_level": zod.number().optional(),
+  "description": zod.string()
+}).optional(),
   "tsi": zod.object({
   "value": zod.number(),
   "is_oversold": zod.boolean(),
@@ -44,19 +61,22 @@ export const GetMarketAnalysisResponse = zod.object({
   "macd": zod.number(),
   "signal": zod.number(),
   "histogram": zod.number(),
-  "macd_bullish": zod.boolean(),
-  "macd_bearish": zod.boolean(),
   "values": zod.array(zod.number()).optional(),
   "signal_values": zod.array(zod.number()).optional(),
   "histogram_values": zod.array(zod.number()).optional()
 }).optional(),
+  "last_fractals": zod.array(zod.object({
+  "type": zod.enum(['SUPPORT', 'RESISTANCE']),
+  "index": zod.number(),
+  "price": zod.number()
+})).optional(),
   "last_updated": zod.string().optional()
 }))
 })
 
 
 /**
- * @summary Get 1000 candles for a symbol
+ * @summary Get 1000 candles for chart display
  */
 export const GetSymbolCandlesParams = zod.object({
   "symbol": zod.coerce.string()
@@ -81,24 +101,5 @@ export const GetSymbolListResponseItem = zod.object({
   "multiplier": zod.number()
 })
 export const GetSymbolListResponse = zod.array(GetSymbolListResponseItem)
-
-
-/**
- * @summary Get recent trade history placed by the bot
- */
-export const GetTradeHistoryResponseItem = zod.object({
-  "timestamp": zod.string(),
-  "symbol": zod.string(),
-  "side": zod.enum(['BUY', 'SELL']),
-  "contract_type": zod.string(),
-  "contract_id": zod.string().optional(),
-  "ask_price": zod.number().optional(),
-  "multiplier": zod.number().optional(),
-  "tsi": zod.number().optional(),
-  "macd_histogram": zod.number().optional(),
-  "status": zod.enum(['PLACED', 'FAILED']),
-  "error": zod.string().nullish()
-})
-export const GetTradeHistoryResponse = zod.array(GetTradeHistoryResponseItem)
 
 

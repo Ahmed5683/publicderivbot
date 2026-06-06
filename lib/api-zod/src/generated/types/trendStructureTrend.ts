@@ -6,10 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type SymbolAnalysisTrend = typeof SymbolAnalysisTrend[keyof typeof SymbolAnalysisTrend];
+export type TrendStructureTrend = typeof TrendStructureTrend[keyof typeof TrendStructureTrend];
 
 
-export const SymbolAnalysisTrend = {
+export const TrendStructureTrend = {
   UPTREND: 'UPTREND',
   DOWNTREND: 'DOWNTREND',
   CONSOLIDATION: 'CONSOLIDATION',

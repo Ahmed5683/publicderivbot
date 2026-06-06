@@ -30,6 +30,10 @@ SYMBOL_CONFIG = {
     "R_100":  {"multiplier": 40,  "name": "R_100"},
 }
 
+FRACTAL_PERIOD = 55
+TSI_PERIOD = 55
+TSI_OVERSOLD = -0.7
+TSI_OVERBOUGHT = 0.7
 CACHE_TTL = 60
 CANDLE_CACHE_TTL = 60
 
@@ -37,120 +41,156 @@ _analysis_cache: Optional[Dict] = None
 _analysis_cache_time: float = 0
 _candle_cache: Dict[str, Any] = {}
 _candle_cache_time: Dict[str, float] = {}
-_trade_history: List[Dict] = []
 
 
 # ─────────────────────────────────────────
-# Indicators (matching the bot exactly)
+# Indicators
 # ─────────────────────────────────────────
 
-def calculate_ema_series(prices: List[float], period: int) -> List[float]:
-    if len(prices) < period:
-        return [prices[-1]] * len(prices)
-    multiplier = 2 / (period + 1)
-    ema_series = [prices[0]]
-    for price in prices[1:]:
-        ema_series.append((price - ema_series[-1]) * multiplier + ema_series[-1])
-    return ema_series
+def ema_series(prices: List[float], period: int) -> List[float]:
+    if not prices:
+        return []
+    k = 2.0 / (period + 1)
+    result = [prices[0]]
+    for p in prices[1:]:
+        result.append(p * k + result[-1] * (1 - k))
+    return result
 
 
-def calculate_ema(prices: List[float], period: int) -> float:
-    if len(prices) < period:
-        return prices[-1] if prices else 0.0
-    multiplier = 2 / (period + 1)
-    ema = prices[0]
-    for price in prices[1:]:
-        ema = (price - ema) * multiplier + ema
-    return ema
-
-
-def calculate_macd(close_prices: List[float], fast_period=21, slow_period=55, signal_period=9) -> Dict:
-    """
-    Calculates MACD and detects crossovers using closed candles (-2 for current, -3 for prev).
-    Returns bullish/bearish crossover flags plus series for charting.
-    """
-    if len(close_prices) < slow_period + signal_period + 2:
-        return {
-            "macd": 0.0, "signal": 0.0, "histogram": 0.0,
-            "macd_bullish": False, "macd_bearish": False,
-            "values": [], "signal_values": [], "histogram_values": [],
-        }
-
-    ema_fast_series = calculate_ema_series(close_prices, fast_period)
-    ema_slow_series = calculate_ema_series(close_prices, slow_period)
-    macd_line_series = [f - s for f, s in zip(ema_fast_series, ema_slow_series)]
-    signal_line_series = calculate_ema_series(macd_line_series, signal_period)
-
-    if len(macd_line_series) < 3 or len(signal_line_series) < 3:
-        return {
-            "macd": 0.0, "signal": 0.0, "histogram": 0.0,
-            "macd_bullish": False, "macd_bearish": False,
-            "values": [], "signal_values": [], "histogram_values": [],
-        }
-
-    # Use closed candles: -2 is last closed, -3 is previous closed
-    current_macd = macd_line_series[-2]
-    current_signal = signal_line_series[-2]
-    prev_macd = macd_line_series[-3]
-    prev_signal = signal_line_series[-3]
-
-    bullish = (prev_macd < prev_signal) and (current_macd > current_signal)
-    bearish = (prev_macd > prev_signal) and (current_macd < current_signal)
-    hist_series = [m - s for m, s in zip(macd_line_series, signal_line_series)]
-    tail = 60
-
+def calc_macd(closes: List[float], fast=21, slow=55, signal=21) -> Dict:
+    """MACD (21, 55, 21) — exactly as specified."""
+    if len(closes) < slow + signal:
+        return {"macd": 0.0, "signal": 0.0, "histogram": 0.0,
+                "values": [], "signal_values": [], "histogram_values": []}
+    fast_ema = ema_series(closes, fast)
+    slow_ema = ema_series(closes, slow)
+    macd_line = [f - s for f, s in zip(fast_ema, slow_ema)]
+    sig_line = ema_series(macd_line, signal)
+    hist = [m - s for m, s in zip(macd_line, sig_line)]
+    tail = 100
     return {
-        "macd": round(current_macd, 6),
-        "signal": round(current_signal, 6),
-        "histogram": round(current_macd - current_signal, 6),
-        "macd_bullish": bullish,
-        "macd_bearish": bearish,
-        "values": [round(x, 6) for x in macd_line_series[-tail:]],
-        "signal_values": [round(x, 6) for x in signal_line_series[-tail:]],
-        "histogram_values": [round(x, 6) for x in hist_series[-tail:]],
+        "macd":      round(macd_line[-1], 6),
+        "signal":    round(sig_line[-1], 6),
+        "histogram": round(hist[-1], 6),
+        "values":           [round(x, 6) for x in macd_line[-tail:]],
+        "signal_values":    [round(x, 6) for x in sig_line[-tail:]],
+        "histogram_values": [round(x, 6) for x in hist[-tail:]],
     }
 
 
-def calculate_tsi(close_prices: List[float], period=55) -> Dict:
+def calc_tsi(closes: List[float], period: int = TSI_PERIOD) -> Dict:
     """
-    Trend Strength Index using Pearson's correlation coefficient.
-    Range: -1 to +1. Oversold < -0.8, Overbought > +0.8.
-    Uses closed candles (excludes last price).
+    Trend Strength Index — Pearson's correlation of price vs bar index.
+    Range: -1 to +1.  Oversold < -0.7 | Overbought > +0.7.
+    Uses closed candles (all bars; the live bar is excluded at call site).
     """
-    if len(close_prices) < period + 1:
-        return {"value": 0.0, "is_oversold": False, "is_overbought": False, "values": []}
-
-    closed_prices = close_prices[:-1]  # exclude last (open) candle
-    if len(closed_prices) < period:
-        return {"value": 0.0, "is_oversold": False, "is_overbought": False, "values": []}
-
-    # Compute rolling TSI for charting
-    tsi_values = []
-    for end in range(period, len(closed_prices) + 1):
-        window = closed_prices[end - period:end]
+    values: List[float] = []
+    for end in range(period, len(closes) + 1):
+        window = closes[end - period:end]
         n = len(window)
-        bar_indices = list(range(n))
-        mean_x = sum(bar_indices) / n
-        mean_y = sum(window) / n
-        numerator = 0.0
-        sum_sq_x = 0.0
-        sum_sq_y = 0.0
-        for i in range(n):
-            xd = bar_indices[i] - mean_x
-            yd = window[i] - mean_y
-            numerator += xd * yd
-            sum_sq_x += xd * xd
-            sum_sq_y += yd * yd
-        denom = math.sqrt(sum_sq_x * sum_sq_y)
-        tsi_values.append(round(numerator / denom if denom != 0 else 0.0, 4))
+        xs = list(range(n))
+        mx = (n - 1) / 2
+        my = sum(window) / n
+        num = sum((xs[i] - mx) * (window[i] - my) for i in range(n))
+        sx = sum((xs[i] - mx) ** 2 for i in range(n))
+        sy = sum((window[i] - my) ** 2 for i in range(n))
+        denom = math.sqrt(sx * sy)
+        values.append(round(num / denom if denom else 0.0, 4))
 
-    current = tsi_values[-1] if tsi_values else 0.0
+    current = values[-1] if values else 0.0
     return {
         "value": current,
-        "is_oversold": current < -0.8,
-        "is_overbought": current > 0.8,
-        "values": tsi_values[-60:],
+        "is_oversold":  current < TSI_OVERSOLD,
+        "is_overbought": current > TSI_OVERBOUGHT,
+        "values": values[-100:],
     }
+
+
+def get_fractals(highs: List[float], lows: List[float], period: int = FRACTAL_PERIOD) -> List[Dict]:
+    fractals: List[Dict] = []
+    for i in range(period, len(highs) - period):
+        if all(highs[i] > highs[i - j] and highs[i] > highs[i + j] for j in range(1, period + 1)):
+            fractals.append({"type": "RESISTANCE", "index": i, "price": round(highs[i], 4)})
+        if all(lows[i] < lows[i - j] and lows[i] < lows[i + j] for j in range(1, period + 1)):
+            fractals.append({"type": "SUPPORT", "index": i, "price": round(lows[i], 4)})
+    return fractals
+
+
+def identify_trend(fractals: List[Dict]) -> Optional[Dict]:
+    if len(fractals) < 4:
+        return None
+    supports    = [f for f in fractals if f["type"] == "SUPPORT"][-2:]
+    resistances = [f for f in fractals if f["type"] == "RESISTANCE"][-2:]
+    if len(supports) < 2 or len(resistances) < 2:
+        return None
+    lr, pr = resistances[-1]["price"], resistances[-2]["price"]
+    ls, ps = supports[-1]["price"],    supports[-2]["price"]
+    rc = (lr - pr) / pr * 100
+    sc = (ls - ps) / ps * 100
+    if lr > pr and ls > ps:
+        return {
+            "trend": "UPTREND", "pattern": "HH_HL",
+            "last_resistance": lr, "prev_resistance": pr,
+            "last_support": ls, "prev_support": ps,
+            "bos_level": lr, "choch_level": ls, "pullback_level": ls,
+            "description": f"HH: {pr:.4f}→{lr:.4f} (+{rc:.1f}%) | HL: {ps:.4f}→{ls:.4f} (+{sc:.1f}%)",
+        }
+    elif lr < pr and ls < ps:
+        return {
+            "trend": "DOWNTREND", "pattern": "LH_LL",
+            "last_resistance": lr, "prev_resistance": pr,
+            "last_support": ls, "prev_support": ps,
+            "bos_level": ls, "choch_level": lr, "pullback_level": lr,
+            "description": f"LH: {pr:.4f}→{lr:.4f} ({rc:.1f}%) | LL: {ps:.4f}→{ls:.4f} ({sc:.1f}%)",
+        }
+    else:
+        return {
+            "trend": "CONSOLIDATION",
+            "last_resistance": lr, "prev_resistance": pr,
+            "last_support": ls, "prev_support": ps,
+            "description": f"Mixed: R {pr:.4f}→{lr:.4f} | S {ps:.4f}→{ls:.4f}",
+        }
+
+
+def detect_state(structure: Optional[Dict], price: float) -> Dict:
+    if not structure or structure["trend"] == "CONSOLIDATION":
+        desc = structure["description"] if structure else "No fractal structure yet"
+        return {"state": "CONSOLIDATION", "trend": "CONSOLIDATION", "description": desc}
+
+    trend = structure["trend"]
+    info: Dict[str, Any] = {"trend": trend, "current_price": round(price, 4)}
+
+    if trend == "UPTREND":
+        res, sup = structure["last_resistance"], structure["last_support"]
+        d_sup = abs(price - sup) / sup * 100
+        if price > res:
+            info.update({"state": "BOS_CONTINUATION",
+                         "description": f"BOS: Broke resistance {res:.4f} (+{(price-res)/res*100:.2f}%)"})
+        elif price < sup:
+            info.update({"state": "CHoCH_REVERSAL",
+                         "description": f"CHoCH: Broke support {sup:.4f} — TREND REVERSAL"})
+        elif d_sup <= 1.0:
+            info.update({"state": "PULLBACK",
+                         "description": f"Pullback to support {sup:.4f} (dist: {d_sup:.2f}%)"})
+        else:
+            info.update({"state": "IN_TREND",
+                         "description": f"Uptrend: Support {sup:.4f} → Resistance {res:.4f}"})
+    else:
+        res, sup = structure["last_resistance"], structure["last_support"]
+        d_res = abs(res - price) / price * 100
+        if price < sup:
+            info.update({"state": "BOS_CONTINUATION",
+                         "description": f"BOS: Broke support {sup:.4f} (-{(sup-price)/sup*100:.2f}%)"})
+        elif price > res:
+            info.update({"state": "CHoCH_REVERSAL",
+                         "description": f"CHoCH: Broke resistance {res:.4f} — TREND REVERSAL"})
+        elif d_res <= 1.0:
+            info.update({"state": "PULLBACK",
+                         "description": f"Pullback to resistance {res:.4f} (dist: {d_res:.2f}%)"})
+        else:
+            info.update({"state": "IN_TREND",
+                         "description": f"Downtrend: Resistance {res:.4f} → Support {sup:.4f}"})
+    return info
 
 
 # ─────────────────────────────────────────
@@ -158,61 +198,63 @@ def calculate_tsi(close_prices: List[float], period=55) -> Dict:
 # ─────────────────────────────────────────
 
 async def fetch_candles(api: DerivAPI, symbol: str, count: int) -> List[Dict]:
-    req = {
+    resp = await api.ticks_history({
         "ticks_history": symbol,
         "adjust_start_time": 1,
         "count": count,
         "end": "latest",
         "granularity": 60,
         "style": "candles",
-    }
-    resp = await api.ticks_history(req)
+    })
     return resp.get("candles", [])
 
 
 async def analyze_symbol(api: DerivAPI, symbol: str, config: Dict) -> Optional[Dict]:
     try:
-        candles = await fetch_candles(api, symbol, 400)
-        if len(candles) < 351:
+        # 500 candles for market-state detection
+        candles = await fetch_candles(api, symbol, 500)
+        if len(candles) < 100:
             return None
 
-        close_prices = [float(c["close"]) for c in candles]
-        closed_prices = close_prices[:-1]
+        highs  = [float(c["high"])  for c in candles]
+        lows   = [float(c["low"])   for c in candles]
+        closes = [float(c["close"]) for c in candles]
+        price  = closes[-1]
 
-        # Trend: EMA100 vs EMA350
-        ema100 = calculate_ema(closed_prices, 100)
-        ema350 = calculate_ema(closed_prices, 350)
-        is_uptrend = ema100 > ema350
+        # Fractals (period 55)
+        fractals  = get_fractals(highs, lows, FRACTAL_PERIOD)
+        structure = identify_trend(fractals)
+        state     = detect_state(structure, price)
 
-        # MACD (21, 55, 9)
-        macd = calculate_macd(closed_prices, 21, 55, 9)
+        # TSI — Pearson r, period 55, exclude live bar
+        tsi = calc_tsi(closes[:-1], TSI_PERIOD)
 
-        # TSI Pearson correlation (period=55)
-        tsi = calculate_tsi(close_prices, 55)
-
-        # Signal detection
-        signal = "NONE"
-        if is_uptrend and macd["macd_bullish"] and tsi["is_oversold"]:
-            signal = "BUY"
-        elif (not is_uptrend) and macd["macd_bearish"] and tsi["is_overbought"]:
-            signal = "SELL"
+        # MACD (21, 55, 21)
+        macd = calc_macd(closes, fast=21, slow=55, signal=21)
 
         volatility = round(
-            ((max(float(c["high"]) for c in candles[-20:]) - min(float(c["low"]) for c in candles[-20:])) /
-             min(float(c["low"]) for c in candles[-20:])) * 100, 1
-        ) if len(candles) >= 20 else 0.0
+            ((max(highs[-20:]) - min(lows[-20:])) / min(lows[-20:])) * 100, 1
+        ) if len(highs) >= 20 else 0.0
+
+        last_fractals = fractals[-4:] if len(fractals) >= 4 else fractals
 
         return {
-            "symbol": symbol,
-            "name": config["name"],
-            "price": round(float(candles[-1]["close"]), 4),
-            "volatility": volatility,
-            "trend": "UPTREND" if is_uptrend else "DOWNTREND",
-            "ema100": round(ema100, 4),
-            "ema350": round(ema350, 4),
-            "signal": signal,
-            "tsi": tsi,
-            "macd": macd,
+            "symbol":       symbol,
+            "name":         config["name"],
+            "price":        round(price, 4),
+            "volatility":   volatility,
+            "state":        state["state"],
+            "trend":        state["trend"],
+            "fractal_count": len(fractals),
+            "support":      structure["last_support"]    if structure and "last_support"    in structure else None,
+            "resistance":   structure["last_resistance"] if structure and "last_resistance" in structure else None,
+            "bos_level":    structure.get("bos_level")   if structure else None,
+            "choch_level":  structure.get("choch_level") if structure else None,
+            "description":  state["description"],
+            "structure":    structure,
+            "tsi":          tsi,
+            "macd":         macd,
+            "last_fractals": last_fractals,
             "last_updated": datetime.utcnow().isoformat(),
         }
     except Exception as e:
@@ -220,95 +262,37 @@ async def analyze_symbol(api: DerivAPI, symbol: str, config: Dict) -> Optional[D
         return None
 
 
-async def place_trade(api: DerivAPI, symbol: str, contract_type: str, side: str, config: Dict,
-                      tsi_val: float, macd_hist: float):
-    record: Dict[str, Any] = {
-        "timestamp": datetime.utcnow().isoformat(),
-        "symbol": symbol,
-        "side": side,
-        "contract_type": contract_type,
-        "contract_id": None,
-        "ask_price": None,
-        "multiplier": config["multiplier"],
-        "tsi": round(tsi_val, 4),
-        "macd_histogram": round(macd_hist, 6),
-        "status": "FAILED",
-        "error": None,
-    }
-    try:
-        proposal = await api.proposal({
-            "proposal": 1,
-            "amount": 1,
-            "basis": "stake",
-            "contract_type": contract_type,
-            "currency": "USD",
-            "symbol": symbol,
-            "multiplier": config["multiplier"],
-        })
-        proposal_id = proposal["proposal"]["id"]
-        ask_price = proposal["proposal"]["ask_price"]
-        record["ask_price"] = ask_price
-
-        buy_resp = await api.buy({"buy": proposal_id, "price": ask_price})
-        contract_id = buy_resp["buy"]["contract_id"]
-        record["contract_id"] = str(contract_id)
-
-        await api.contract_update({
-            "contract_id": contract_id,
-            "limit_order": {
-                "stop_loss": 1.0,
-                "take_profit": 0.5,
-            },
-        })
-        record["status"] = "PLACED"
-        print(f"[TRADE] {side} {symbol} contract={contract_id} ask={ask_price}")
-    except Exception as e:
-        record["error"] = str(e)
-        print(f"[TRADE FAILED] {side} {symbol}: {e}")
-
-    _trade_history.insert(0, record)
-    if len(_trade_history) > 100:
-        _trade_history.pop()
-
-
-async def run_full_scan() -> Dict:
+async def run_full_analysis() -> Dict:
     api = DerivAPI(app_id=APP_ID)
     await api.authorize(TOKEN)
-    results = []
+    results: List[Dict] = []
     for symbol, config in SYMBOL_CONFIG.items():
         result = await analyze_symbol(api, symbol, config)
         if result:
             results.append(result)
-            # Place trades for signals
-            if result["signal"] == "BUY":
-                await place_trade(
-                    api, symbol, "MULTUP", "BUY", config,
-                    result["tsi"]["value"], result["macd"]["histogram"]
-                )
-            elif result["signal"] == "SELL":
-                await place_trade(
-                    api, symbol, "MULTDOWN", "SELL", config,
-                    result["tsi"]["value"], result["macd"]["histogram"]
-                )
         await asyncio.sleep(0.2)
     await api.disconnect()
 
-    buy_count = sum(1 for r in results if r["signal"] == "BUY")
-    sell_count = sum(1 for r in results if r["signal"] == "SELL")
-    uptrend_count = sum(1 for r in results if r["trend"] == "UPTREND")
-    downtrend_count = sum(1 for r in results if r["trend"] == "DOWNTREND")
+    counts: Dict[str, int] = {
+        "PULLBACK": 0, "BOS_CONTINUATION": 0, "CHoCH_REVERSAL": 0,
+        "IN_TREND": 0, "CONSOLIDATION": 0,
+    }
+    for r in results:
+        counts[r["state"]] = counts.get(r["state"], 0) + 1
 
     return {
-        "timestamp": datetime.utcnow().isoformat(),
-        "buy_count": buy_count,
-        "sell_count": sell_count,
-        "uptrend_count": uptrend_count,
-        "downtrend_count": downtrend_count,
-        "symbols": results,
+        "timestamp":          datetime.utcnow().isoformat(),
+        "pullback_count":     counts["PULLBACK"],
+        "bos_count":          counts["BOS_CONTINUATION"],
+        "choch_count":        counts["CHoCH_REVERSAL"],
+        "trending_count":     counts["IN_TREND"],
+        "consolidation_count":counts["CONSOLIDATION"],
+        "symbols":            results,
     }
 
 
-async def get_1000_candles(symbol: str) -> List[Dict]:
+async def get_chart_candles(symbol: str) -> List[Dict]:
+    """Fetch 1000 candles for chart display."""
     api = DerivAPI(app_id=APP_ID)
     await api.authorize(TOKEN)
     candles = await fetch_candles(api, symbol, 1000)
@@ -321,31 +305,10 @@ async def get_1000_candles(symbol: str) -> List[Dict]:
 
 
 # ─────────────────────────────────────────
-# Background scanning loop
+# FastAPI
 # ─────────────────────────────────────────
 
-async def background_scan_loop():
-    """Runs the full scan every 60 seconds, exactly like the bot's main loop."""
-    global _analysis_cache, _analysis_cache_time
-    while True:
-        try:
-            print(f"[SCAN] Starting market scan at {datetime.utcnow().isoformat()}")
-            data = await run_full_scan()
-            _analysis_cache = data
-            _analysis_cache_time = time.time()
-            buys = data["buy_count"]
-            sells = data["sell_count"]
-            print(f"[SCAN] Complete. BUY signals: {buys}, SELL signals: {sells}")
-        except Exception as e:
-            print(f"[SCAN ERROR] {e}")
-        await asyncio.sleep(60)
-
-
-# ─────────────────────────────────────────
-# FastAPI app
-# ─────────────────────────────────────────
-
-app = FastAPI(title="Deriv Market Analysis")
+app = FastAPI(title="Deriv Market Scanner")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -353,12 +316,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(background_scan_loop())
-
 
 router = APIRouter(prefix="/api")
 
@@ -371,24 +328,26 @@ async def health():
 @router.get("/market/symbols")
 async def get_symbols():
     return [
-        {"symbol": sym, "name": cfg["name"], "multiplier": cfg["multiplier"]}
-        for sym, cfg in SYMBOL_CONFIG.items()
+        {"symbol": s, "name": c["name"], "multiplier": c["multiplier"]}
+        for s, c in SYMBOL_CONFIG.items()
     ]
 
 
 @router.get("/market/analysis")
 async def market_analysis():
-    if _analysis_cache:
+    global _analysis_cache, _analysis_cache_time
+    now = time.time()
+    if _analysis_cache and (now - _analysis_cache_time) < CACHE_TTL:
         return _analysis_cache
-    # Return empty stub while first scan is running
-    return {
-        "timestamp": datetime.utcnow().isoformat(),
-        "buy_count": 0,
-        "sell_count": 0,
-        "uptrend_count": 0,
-        "downtrend_count": 0,
-        "symbols": [],
-    }
+    try:
+        data = await run_full_analysis()
+        _analysis_cache = data
+        _analysis_cache_time = now
+        return data
+    except Exception as e:
+        if _analysis_cache:
+            return _analysis_cache
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/market/candles/{symbol}")
@@ -399,7 +358,7 @@ async def get_candles(symbol: str):
     if symbol in _candle_cache and (now - _candle_cache_time.get(symbol, 0)) < CANDLE_CACHE_TTL:
         return _candle_cache[symbol]
     try:
-        data = await get_1000_candles(symbol)
+        data = await get_chart_candles(symbol)
         _candle_cache[symbol] = data
         _candle_cache_time[symbol] = now
         return data
@@ -409,13 +368,7 @@ async def get_candles(symbol: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/market/trades")
-async def get_trades():
-    return _trade_history
-
-
 app.include_router(router)
-
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=PORT)
