@@ -16,7 +16,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  Candle,
+  ChartData,
   HealthStatus,
   MarketSummary,
   SymbolInfo
@@ -188,20 +188,20 @@ export function useGetMarketAnalysis<TData = Awaited<ReturnType<typeof getMarket
 
 
 
-export const getGetSymbolCandlesUrl = (symbol: string,) => {
+export const getGetChartDataUrl = (symbol: string,) => {
 
 
 
 
-  return `/api/market/candles/${symbol}`
+  return `/api/market/chart/${symbol}`
 }
 
 /**
- * @summary Get 1000 candles for chart display
+ * @summary Get 1000 candles + fractal markers (HH/HL/LH/LL) for chart display
  */
-export const getSymbolCandles = async (symbol: string, options?: RequestInit): Promise<Candle[]> => {
+export const getChartData = async (symbol: string, options?: RequestInit): Promise<ChartData> => {
 
-  return customFetch<Candle[]>(getGetSymbolCandlesUrl(symbol),
+  return customFetch<ChartData>(getGetChartDataUrl(symbol),
   {
     ...options,
     method: 'GET'
@@ -214,45 +214,45 @@ export const getSymbolCandles = async (symbol: string, options?: RequestInit): P
 
 
 
-export const getGetSymbolCandlesQueryKey = (symbol: string,) => {
+export const getGetChartDataQueryKey = (symbol: string,) => {
     return [
-    `/api/market/candles/${symbol}`
+    `/api/market/chart/${symbol}`
     ] as const;
     }
 
 
-export const getGetSymbolCandlesQueryOptions = <TData = Awaited<ReturnType<typeof getSymbolCandles>>, TError = ErrorType<unknown>>(symbol: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSymbolCandles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetChartDataQueryOptions = <TData = Awaited<ReturnType<typeof getChartData>>, TError = ErrorType<unknown>>(symbol: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getChartData>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetSymbolCandlesQueryKey(symbol);
+  const queryKey =  queryOptions?.queryKey ?? getGetChartDataQueryKey(symbol);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSymbolCandles>>> = ({ signal }) => getSymbolCandles(symbol, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getChartData>>> = ({ signal }) => getChartData(symbol, { signal, ...requestOptions });
 
 
 
 
 
-   return  { queryKey, queryFn, enabled: !!(symbol), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSymbolCandles>>, TError, TData> & { queryKey: QueryKey }
+   return  { queryKey, queryFn, enabled: !!(symbol), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getChartData>>, TError, TData> & { queryKey: QueryKey }
 }
 
-export type GetSymbolCandlesQueryResult = NonNullable<Awaited<ReturnType<typeof getSymbolCandles>>>
-export type GetSymbolCandlesQueryError = ErrorType<unknown>
+export type GetChartDataQueryResult = NonNullable<Awaited<ReturnType<typeof getChartData>>>
+export type GetChartDataQueryError = ErrorType<unknown>
 
 
 /**
- * @summary Get 1000 candles for chart display
+ * @summary Get 1000 candles + fractal markers (HH/HL/LH/LL) for chart display
  */
 
-export function useGetSymbolCandles<TData = Awaited<ReturnType<typeof getSymbolCandles>>, TError = ErrorType<unknown>>(
- symbol: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSymbolCandles>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export function useGetChartData<TData = Awaited<ReturnType<typeof getChartData>>, TError = ErrorType<unknown>>(
+ symbol: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getChartData>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getGetSymbolCandlesQueryOptions(symbol,options)
+  const queryOptions = getGetChartDataQueryOptions(symbol,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

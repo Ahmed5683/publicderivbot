@@ -1,32 +1,55 @@
-import { useGetSymbolCandles, getGetSymbolCandlesQueryKey, useGetMarketAnalysis } from "@workspace/api-client-react";
+import {
+  useGetChartData,
+  getGetChartDataQueryKey,
+  useGetMarketAnalysis,
+  useGetSymbolList,
+} from "@workspace/api-client-react";
 import { useParams, useLocation } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CandleChart } from "@/components/CandleChart";
-import type { SymbolAnalysis, FractalLevel, MACDData, TSIData } from "@workspace/api-client-react";
+import type { SymbolAnalysis } from "@workspace/api-client-react";
 
-function StatBadge({ label, value, color }: { label: string; value: string; color: string }) {
+const ALL_SYMBOLS = [
+  "1HZ10V","R_10","1HZ15V","1HZ25V","R_25",
+  "1HZ30V","1HZ50V","R_50","1HZ75V","R_75",
+  "1HZ90V","1HZ100V","R_100",
+];
+
+const LEGEND = [
+  { key: "HH", label: "Higher High", color: "#22c55e" },
+  { key: "HL", label: "Higher Low",  color: "#4ade80" },
+  { key: "LH", label: "Lower High",  color: "#ef4444" },
+  { key: "LL", label: "Lower Low",   color: "#fca5a5" },
+];
+
+const STATE_COLOR: Record<string, string> = {
+  PULLBACK:         "text-amber-400",
+  BOS_CONTINUATION: "text-cyan-400",
+  CHoCH_REVERSAL:   "text-purple-400",
+  IN_TREND:         "",
+  CONSOLIDATION:    "text-gray-400",
+};
+
+function StatPill({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <div className="bg-card border border-border rounded px-3 py-2">
-      <div className="text-xs text-muted-foreground font-mono uppercase tracking-wide">{label}</div>
-      <div className={`text-sm font-bold font-mono mt-0.5 ${color}`}>{value}</div>
+    <div className="bg-[#111827] border border-[#1e293b] rounded px-3 py-1.5">
+      <div className="text-[10px] text-[#6b7280] font-mono uppercase tracking-wide">{label}</div>
+      <div className={`text-xs font-bold font-mono mt-0.5 ${color}`}>{value}</div>
     </div>
   );
 }
-
-const STATE_COLORS: Record<string, string> = {
-  PULLBACK:        "text-amber-400",
-  BOS_CONTINUATION:"text-cyan-400",
-  CHoCH_REVERSAL:  "text-purple-400",
-  IN_TREND:        "text-foreground",
-  CONSOLIDATION:   "text-gray-400",
-};
 
 export default function SymbolDetail() {
   const { symbol } = useParams<{ symbol: string }>();
   const [, setLocation] = useLocation();
 
-  const { data: candles, isLoading: candlesLoading } = useGetSymbolCandles(symbol!, {
-    query: { enabled: !!symbol, queryKey: getGetSymbolCandlesQueryKey(symbol!) },
+  const { data: symbolList } = useGetSymbolList();
+
+  const { data: chart, isLoading: chartLoading } = useGetChartData(symbol!, {
+    query: {
+      enabled: !!symbol,
+      queryKey: getGetChartDataQueryKey(symbol!),
+    },
   });
 
   const { data: marketData } = useGetMarketAnalysis();
@@ -34,160 +57,167 @@ export default function SymbolDetail() {
     (s: SymbolAnalysis) => s.symbol === symbol
   );
 
-  const macd: MACDData | undefined = symData?.macd;
-  const tsi: TSIData | undefined = symData?.tsi;
-  const fractals: FractalLevel[] = symData?.last_fractals ?? [];
-  const supportLevels = fractals.filter(f => f.type === "SUPPORT").map(f => f.price);
-  const resistanceLevels = fractals.filter(f => f.type === "RESISTANCE").map(f => f.price);
+  const tsi  = symData?.tsi;
+  const macd = symData?.macd;
 
-  const tsiValue = tsi?.value ?? 0;
   const tsiColor =
     tsi?.is_oversold  ? "text-green-400" :
-    tsi?.is_overbought ? "text-red-400" :
-    "text-cyan-400";
-  const tsiLabel =
-    tsi?.is_oversold  ? "OVERSOLD" :
-    tsi?.is_overbought ? "OVERBOUGHT" :
-    Math.abs(tsiValue) > 0.4 ? "TRENDING" : "NEUTRAL";
+    tsi?.is_overbought ? "text-red-400"  : "text-cyan-400";
+  const tsiTag =
+    tsi?.is_oversold  ? "OVERSOLD"  :
+    tsi?.is_overbought ? "OVERBOUGHT" : "NEUTRAL";
 
-  const stateColor = symData
-    ? (symData.trend === "UPTREND" && symData.state === "IN_TREND"
-        ? "text-green-400"
-        : symData.trend === "DOWNTREND" && symData.state === "IN_TREND"
-          ? "text-red-400"
-          : STATE_COLORS[symData.state] ?? "text-foreground")
-    : "text-foreground";
+  const stateColor =
+    symData?.trend === "UPTREND" && symData?.state === "IN_TREND"   ? "text-green-400" :
+    symData?.trend === "DOWNTREND" && symData?.state === "IN_TREND" ? "text-red-400"   :
+    symData ? (STATE_COLOR[symData.state] ?? "text-foreground") : "text-foreground";
+
+  const updatedTime = chart?.last_updated
+    ? new Date(chart.last_updated + "Z").toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    : "";
+
+  // Build symbol options — use fetched list or fall back to constant
+  const symbolOptions = (symbolList ?? ALL_SYMBOLS.map(s => ({ symbol: s, name: s, multiplier: 0 })));
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="border-b border-border px-6 py-4 flex items-center gap-4">
+    <div className="min-h-screen bg-[#0d1117] text-foreground">
+      {/* ── Top bar ─────────────────────────────────────────── */}
+      <div className="border-b border-[#1e293b] px-5 py-3 flex items-center gap-4">
         <button
-          className="text-xs font-mono text-muted-foreground hover:text-primary transition-colors px-2 py-1 border border-border rounded"
+          className="text-[10px] font-mono text-[#6b7280] hover:text-primary transition-colors px-2 py-1 border border-[#1e293b] rounded"
           onClick={() => setLocation("/")}
-          data-testid="button-back"
         >
           ← BACK
         </button>
-        <div>
-          <h1 className="text-xl font-bold font-mono text-primary">{symbol}</h1>
-          <p className="text-xs text-muted-foreground font-mono">{symData?.name ?? ""}</p>
-        </div>
-        {symData && (
-          <div className="ml-auto text-right">
-            <div className="text-2xl font-mono font-bold tabular-nums">
-              {symData.price.toLocaleString(undefined, { minimumFractionDigits: 4 })}
-            </div>
-            <div className={`text-xs font-mono font-bold ${stateColor}`}>
+
+        {/* Title */}
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="text-lg font-bold font-mono text-primary">{symbol}</span>
+          <span className="text-xs text-[#6b7280] font-mono hidden sm:block">
+            Candlestick · 1m · {chart?.bar_count ?? "…"} bars
+          </span>
+          {symData && (
+            <span className={`text-xs font-bold font-mono ${stateColor}`}>
               {symData.state.replace(/_/g, " ")} · {symData.trend}
-            </div>
-          </div>
-        )}
-      </header>
+            </span>
+          )}
+        </div>
 
-      <main className="px-6 py-5 space-y-5">
-        {/* Stats row */}
-        {symData && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-            <StatBadge label="Volatility"   value={`${symData.volatility.toFixed(1)}%`}     color="text-foreground" />
-            <StatBadge label="Fractals"     value={`${symData.fractal_count}`}              color="text-cyan-400" />
-            {symData.support    && <StatBadge label="Support"    value={symData.support.toFixed(4)}    color="text-green-400" />}
-            {symData.resistance && <StatBadge label="Resistance" value={symData.resistance.toFixed(4)} color="text-red-400" />}
-            {tsi && (
-              <StatBadge
-                label="TSI(55) Pearson r"
-                value={`${tsiValue >= 0 ? "+" : ""}${tsiValue.toFixed(3)} · ${tsiLabel}`}
-                color={tsiColor}
-              />
-            )}
-            {macd && (
-              <StatBadge
-                label="MACD Hist (21,55,21)"
-                value={`${macd.histogram >= 0 ? "+" : ""}${macd.histogram.toFixed(5)}`}
-                color={macd.histogram >= 0 ? "text-green-400" : "text-red-400"}
-              />
-            )}
-          </div>
-        )}
+        {/* Right: dropdown + updated time */}
+        <div className="ml-auto flex items-center gap-3">
+          {updatedTime && (
+            <span className="text-[10px] font-mono text-[#6b7280] hidden md:block">
+              updated {updatedTime}
+            </span>
+          )}
+          {symData && (
+            <span className="text-base font-bold font-mono tabular-nums">
+              {symData.price.toLocaleString(undefined, { minimumFractionDigits: 4 })}
+            </span>
+          )}
 
-        {/* Description */}
-        {symData?.description && (
-          <div className="rounded border border-border bg-card px-4 py-3 text-sm font-mono text-muted-foreground">
+          {/* Symbol dropdown */}
+          <select
+            value={symbol}
+            onChange={(e) => setLocation(`/symbol/${e.target.value}`)}
+            className="bg-[#111827] border border-[#1e293b] text-sm font-mono text-foreground rounded px-3 py-1.5 focus:outline-none focus:border-primary cursor-pointer hover:border-[#334155] transition-colors"
+          >
+            {symbolOptions.map((s) => (
+              <option key={s.symbol} value={s.symbol}>
+                {s.symbol}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* ── Legend ──────────────────────────────────────────── */}
+      <div className="px-5 py-2 flex items-center gap-5 border-b border-[#1e293b] bg-[#0d1117]">
+        {LEGEND.map(({ key, label, color }) => (
+          <div key={key} className="flex items-center gap-1.5 text-xs font-mono text-[#9ca3af]">
+            <span style={{ color }} className="text-base leading-none">●</span>
+            <span style={{ color }} className="font-bold">{key}</span>
+            <span className="text-[#6b7280]">— {label}</span>
+          </div>
+        ))}
+        {chart?.trend && (
+          <span className={`ml-auto text-xs font-bold font-mono ${
+            chart.trend === "UPTREND" ? "text-green-400" :
+            chart.trend === "DOWNTREND" ? "text-red-400" : "text-gray-400"
+          }`}>
+            {chart.trend}
+          </span>
+        )}
+      </div>
+
+      {/* ── Chart subtitle ───────────────────────────────────── */}
+      <div className="px-5 pt-2 pb-1">
+        <span className="text-[11px] font-mono text-[#6b7280]">
+          {symbol} — last {chart?.bar_count ?? 1000} candles (1m)
+        </span>
+      </div>
+
+      {/* ── Stats row ───────────────────────────────────────── */}
+      {symData && (
+        <div className="px-5 pb-2 flex flex-wrap gap-2">
+          <StatPill label="Volatility"      value={`${symData.volatility.toFixed(1)}%`}  color="text-foreground" />
+          <StatPill label="Fractals(55)"    value={`${symData.fractal_count}`}            color="text-cyan-400" />
+          {symData.support    && <StatPill label="Support"    value={symData.support.toFixed(4)}    color="text-green-400" />}
+          {symData.resistance && <StatPill label="Resistance" value={symData.resistance.toFixed(4)} color="text-red-400"   />}
+          {tsi && (
+            <StatPill
+              label="TSI Pearson r(55)"
+              value={`${tsi.value >= 0 ? "+" : ""}${tsi.value.toFixed(3)}  ${tsiTag}`}
+              color={tsiColor}
+            />
+          )}
+          {macd && (
+            <StatPill
+              label="MACD Hist(21,55,21)"
+              value={`${macd.histogram >= 0 ? "+" : ""}${macd.histogram.toFixed(5)}`}
+              color={macd.histogram >= 0 ? "text-green-400" : "text-red-400"}
+            />
+          )}
+        </div>
+      )}
+
+      {/* ── Description ──────────────────────────────────────── */}
+      {symData?.description && (
+        <div className="px-5 pb-2">
+          <div className="text-xs font-mono text-[#6b7280] bg-[#111827] border border-[#1e293b] rounded px-3 py-2">
             {symData.description}
           </div>
-        )}
-
-        {/* Canvas chart */}
-        <div className="rounded-lg border border-border bg-[#0d1117] overflow-hidden">
-          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-            <span className="text-sm font-mono font-semibold">
-              {symbol} · 1000 CANDLES (1M) · Fractals(55) · TSI(55) · MACD(21,55,21)
-            </span>
-            {candlesLoading && (
-              <span className="text-xs text-muted-foreground font-mono animate-pulse">Loading...</span>
-            )}
-          </div>
-          <div className="p-2">
-            {candlesLoading ? (
-              <Skeleton className="h-[600px] w-full" />
-            ) : (
-              <CandleChart
-                candles={candles ?? []}
-                tsiValues={tsi?.values ?? []}
-                macdValues={macd?.values ?? []}
-                macdSignalValues={macd?.signal_values ?? []}
-                macdHistValues={macd?.histogram_values ?? []}
-                supportLevels={supportLevels}
-                resistanceLevels={resistanceLevels}
-              />
-            )}
-          </div>
         </div>
+      )}
 
-        {/* Fractal levels table */}
-        {fractals.length > 0 && (
-          <div className="rounded-lg border border-border bg-card overflow-hidden">
-            <div className="px-4 py-3 border-b border-border">
-              <span className="text-sm font-mono font-semibold">FRACTAL LEVELS (Period=55)</span>
-            </div>
-            <div className="p-4">
-              <table className="w-full text-sm font-mono" data-testid="fractal-table">
-                <thead>
-                  <tr className="text-xs text-muted-foreground uppercase">
-                    <th className="text-left py-1">Type</th>
-                    <th className="text-right py-1">Price</th>
-                    <th className="text-right py-1">Bar Index</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...fractals].reverse().map((f, i) => (
-                    <tr key={i} className="border-t border-border/30">
-                      <td className={`py-1.5 font-bold ${f.type === "SUPPORT" ? "text-green-400" : "text-red-400"}`}>
-                        {f.type}
-                      </td>
-                      <td className="py-1.5 text-right tabular-nums">{f.price.toFixed(4)}</td>
-                      <td className="py-1.5 text-right text-muted-foreground">{f.index}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+      {/* ── Canvas chart ─────────────────────────────────────── */}
+      <div className="px-5 pb-5">
+        <div className="rounded-lg border border-[#1e293b] bg-[#0d1117] overflow-hidden">
+          {chartLoading ? (
+            <Skeleton className="h-[660px] w-full rounded-lg" />
+          ) : (
+            <CandleChart
+              candles={chart?.candles ?? []}
+              markers={chart?.markers ?? []}
+              hhLevel={chart?.hh_level}
+              hlLevel={chart?.hl_level}
+              lhLevel={chart?.lh_level}
+              llLevel={chart?.ll_level}
+              trend={chart?.trend}
+              tsiValues={tsi?.values ?? []}
+              macdValues={macd?.values ?? []}
+              macdSignalValues={macd?.signal_values ?? []}
+              macdHistValues={macd?.histogram_values ?? []}
+            />
+          )}
+        </div>
+      </div>
 
-        {/* Structure */}
-        {symData?.structure && (
-          <div className="rounded-lg border border-border bg-card p-4 font-mono text-xs text-muted-foreground">
-            <div className="font-bold text-foreground mb-2 text-sm">MARKET STRUCTURE</div>
-            <div>{symData.structure.description}</div>
-            {symData.structure.bos_level && (
-              <div className="mt-1">BOS Level: <span className="text-cyan-400">{symData.structure.bos_level.toFixed(4)}</span></div>
-            )}
-            {symData.structure.choch_level && (
-              <div className="mt-1">CHoCH Level: <span className="text-purple-400">{symData.structure.choch_level.toFixed(4)}</span></div>
-            )}
-          </div>
-        )}
-      </main>
+      {/* ── Footer ───────────────────────────────────────────── */}
+      <div className="px-5 pb-5 text-[10px] font-mono text-[#4b5563]">
+        TSI = Pearson r (−1 to +1) · Oversold &lt; −0.7 · Overbought &gt; +0.7 ·
+        Fractals period=55 · Green=HH/HL · Red=LH/LL
+      </div>
     </div>
   );
 }

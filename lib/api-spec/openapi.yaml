@@ -39,11 +39,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/MarketSummary"
 
-  /market/candles/{symbol}:
+  /market/chart/{symbol}:
     get:
-      operationId: getSymbolCandles
+      operationId: getChartData
       tags: [market]
-      summary: Get 1000 candles for chart display
+      summary: Get 1000 candles + fractal markers (HH/HL/LH/LL) for chart display
       parameters:
         - name: symbol
           in: path
@@ -52,13 +52,11 @@ paths:
             type: string
       responses:
         "200":
-          description: Candle data
+          description: Chart data with fractal markers
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Candle"
+                $ref: "#/components/schemas/ChartData"
 
   /market/symbols:
     get:
@@ -133,6 +131,57 @@ components:
         - type
         - index
         - price
+
+    FractalMarker:
+      type: object
+      properties:
+        index:
+          type: number
+        price:
+          type: number
+        type:
+          type: string
+          enum: [HH, HL, LH, LL]
+      required:
+        - index
+        - price
+        - type
+
+    ChartData:
+      type: object
+      properties:
+        symbol:
+          type: string
+        trend:
+          type: string
+          enum: [UPTREND, DOWNTREND, CONSOLIDATION]
+        candles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Candle"
+        markers:
+          type: array
+          items:
+            $ref: "#/components/schemas/FractalMarker"
+        hh_level:
+          type: ["number", "null"]
+        hl_level:
+          type: ["number", "null"]
+        lh_level:
+          type: ["number", "null"]
+        ll_level:
+          type: ["number", "null"]
+        bar_count:
+          type: number
+        last_updated:
+          type: string
+      required:
+        - symbol
+        - trend
+        - candles
+        - markers
+        - bar_count
+        - last_updated
 
     TrendStructure:
       type: object

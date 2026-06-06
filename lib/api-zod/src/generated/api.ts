@@ -76,20 +76,34 @@ export const GetMarketAnalysisResponse = zod.object({
 
 
 /**
- * @summary Get 1000 candles for chart display
+ * @summary Get 1000 candles + fractal markers (HH/HL/LH/LL) for chart display
  */
-export const GetSymbolCandlesParams = zod.object({
+export const GetChartDataParams = zod.object({
   "symbol": zod.coerce.string()
 })
 
-export const GetSymbolCandlesResponseItem = zod.object({
+export const GetChartDataResponse = zod.object({
+  "symbol": zod.string(),
+  "trend": zod.enum(['UPTREND', 'DOWNTREND', 'CONSOLIDATION']),
+  "candles": zod.array(zod.object({
   "time": zod.number(),
   "open": zod.number(),
   "high": zod.number(),
   "low": zod.number(),
   "close": zod.number()
+})),
+  "markers": zod.array(zod.object({
+  "index": zod.number(),
+  "price": zod.number(),
+  "type": zod.enum(['HH', 'HL', 'LH', 'LL'])
+})),
+  "hh_level": zod.number().nullish(),
+  "hl_level": zod.number().nullish(),
+  "lh_level": zod.number().nullish(),
+  "ll_level": zod.number().nullish(),
+  "bar_count": zod.number(),
+  "last_updated": zod.string()
 })
-export const GetSymbolCandlesResponse = zod.array(GetSymbolCandlesResponseItem)
 
 
 /**

@@ -7,8 +7,12 @@
  */
 
 export * from './candle';
+export * from './chartData';
+export * from './chartDataTrend';
 export * from './fractalLevel';
 export * from './fractalLevelType';
+export * from './fractalMarker';
+export * from './fractalMarkerType';
 export * from './healthStatus';
 export * from './mACDData';
 export * from './marketSummary';

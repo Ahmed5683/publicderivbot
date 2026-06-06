@@ -37,6 +37,48 @@ export interface FractalLevel {
   price: number;
 }
 
+export type FractalMarkerType = typeof FractalMarkerType[keyof typeof FractalMarkerType];
+
+
+export const FractalMarkerType = {
+  HH: 'HH',
+  HL: 'HL',
+  LH: 'LH',
+  LL: 'LL',
+} as const;
+
+export interface FractalMarker {
+  index: number;
+  price: number;
+  type: FractalMarkerType;
+}
+
+export type ChartDataTrend = typeof ChartDataTrend[keyof typeof ChartDataTrend];
+
+
+export const ChartDataTrend = {
+  UPTREND: 'UPTREND',
+  DOWNTREND: 'DOWNTREND',
+  CONSOLIDATION: 'CONSOLIDATION',
+} as const;
+
+export interface ChartData {
+  symbol: string;
+  trend: ChartDataTrend;
+  candles: Candle[];
+  markers: FractalMarker[];
+  /** @nullable */
+  hh_level?: number | null;
+  /** @nullable */
+  hl_level?: number | null;
+  /** @nullable */
+  lh_level?: number | null;
+  /** @nullable */
+  ll_level?: number | null;
+  bar_count: number;
+  last_updated: string;
+}
+
 export type TrendStructureTrend = typeof TrendStructureTrend[keyof typeof TrendStructureTrend];
 
 
