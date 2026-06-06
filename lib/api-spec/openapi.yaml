@@ -3,13 +3,15 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Deriv Market Analysis API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: market
+    description: Market analysis operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,58 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /market/analysis:
+    get:
+      operationId: getMarketAnalysis
+      tags: [market]
+      summary: Get full market analysis for all symbols
+      description: Returns fractal structure, TSI, MACD, and market state for all Deriv symbols
+      responses:
+        "200":
+          description: Market analysis data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketSummary"
+
+  /market/candles/{symbol}:
+    get:
+      operationId: getSymbolCandles
+      tags: [market]
+      summary: Get 1000 candles for a symbol
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Deriv symbol code (e.g. 1HZ10V)
+      responses:
+        "200":
+          description: Candle data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Candle"
+
+  /market/symbols:
+    get:
+      operationId: getSymbolList
+      tags: [market]
+      summary: Get list of available symbols
+      responses:
+        "200":
+          description: Symbol list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SymbolInfo"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +88,200 @@ components:
       required:
         - status
 
+    Candle:
+      type: object
+      properties:
+        time:
+          type: number
+        open:
+          type: number
+        high:
+          type: number
+        low:
+          type: number
+        close:
+          type: number
+      required:
+        - time
+        - open
+        - high
+        - low
+        - close
+
+    SymbolInfo:
+      type: object
+      properties:
+        symbol:
+          type: string
+        name:
+          type: string
+        multiplier:
+          type: number
+      required:
+        - symbol
+        - name
+        - multiplier
+
+    FractalLevel:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [SUPPORT, RESISTANCE]
+        index:
+          type: number
+        price:
+          type: number
+      required:
+        - type
+        - index
+        - price
+
+    TrendStructure:
+      type: object
+      properties:
+        trend:
+          type: string
+          enum: [UPTREND, DOWNTREND, CONSOLIDATION]
+        pattern:
+          type: string
+        last_resistance:
+          type: number
+        prev_resistance:
+          type: number
+        last_support:
+          type: number
+        prev_support:
+          type: number
+        bos_level:
+          type: number
+        choch_level:
+          type: number
+        pullback_level:
+          type: number
+        description:
+          type: string
+      required:
+        - trend
+        - description
+
+    MACDData:
+      type: object
+      properties:
+        macd:
+          type: number
+        signal:
+          type: number
+        histogram:
+          type: number
+        values:
+          type: array
+          items:
+            type: number
+        signal_values:
+          type: array
+          items:
+            type: number
+        histogram_values:
+          type: array
+          items:
+            type: number
+      required:
+        - macd
+        - signal
+        - histogram
+
+    TSIData:
+      type: object
+      properties:
+        value:
+          type: number
+        values:
+          type: array
+          items:
+            type: number
+        strength:
+          type: string
+          enum: [STRONG, MODERATE, WEAK]
+      required:
+        - value
+        - strength
+
+    SymbolAnalysis:
+      type: object
+      properties:
+        symbol:
+          type: string
+        name:
+          type: string
+        price:
+          type: number
+        volatility:
+          type: number
+        state:
+          type: string
+          enum: [PULLBACK, BOS_CONTINUATION, CHoCH_REVERSAL, IN_TREND, CONSOLIDATION]
+        trend:
+          type: string
+          enum: [UPTREND, DOWNTREND, CONSOLIDATION]
+        fractal_count:
+          type: number
+        support:
+          type: number
+        resistance:
+          type: number
+        bos_level:
+          type: number
+        choch_level:
+          type: number
+        description:
+          type: string
+        structure:
+          $ref: "#/components/schemas/TrendStructure"
+        tsi:
+          $ref: "#/components/schemas/TSIData"
+        macd:
+          $ref: "#/components/schemas/MACDData"
+        last_fractals:
+          type: array
+          items:
+            $ref: "#/components/schemas/FractalLevel"
+        last_updated:
+          type: string
+      required:
+        - symbol
+        - name
+        - price
+        - volatility
+        - state
+        - trend
+        - fractal_count
+        - description
+
+    MarketSummary:
+      type: object
+      properties:
+        timestamp:
+          type: string
+        pullback_count:
+          type: number
+        bos_count:
+          type: number
+        choch_count:
+          type: number
+        trending_count:
+          type: number
+        consolidation_count:
+          type: number
+        symbols:
+          type: array
+          items:
+            $ref: "#/components/schemas/SymbolAnalysis"
+      required:
+        - timestamp
+        - pullback_count
+        - bos_count
+        - choch_count
+        - trending_count
+        - consolidation_count
+        - symbols
