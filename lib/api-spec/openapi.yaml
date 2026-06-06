@@ -18,7 +18,6 @@ paths:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -32,7 +31,6 @@ paths:
       operationId: getMarketAnalysis
       tags: [market]
       summary: Get full market analysis for all symbols
-      description: Returns fractal structure, TSI, MACD, and market state for all Deriv symbols
       responses:
         "200":
           description: Market analysis data
@@ -52,7 +50,6 @@ paths:
           required: true
           schema:
             type: string
-          description: Deriv symbol code (e.g. 1HZ10V)
       responses:
         "200":
           description: Candle data
@@ -77,6 +74,21 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/SymbolInfo"
+
+  /market/trades:
+    get:
+      operationId: getTradeHistory
+      tags: [market]
+      summary: Get recent trade history placed by the bot
+      responses:
+        "200":
+          description: Trade history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TradeRecord"
 
 components:
   schemas:
@@ -122,49 +134,6 @@ components:
         - name
         - multiplier
 
-    FractalLevel:
-      type: object
-      properties:
-        type:
-          type: string
-          enum: [SUPPORT, RESISTANCE]
-        index:
-          type: number
-        price:
-          type: number
-      required:
-        - type
-        - index
-        - price
-
-    TrendStructure:
-      type: object
-      properties:
-        trend:
-          type: string
-          enum: [UPTREND, DOWNTREND, CONSOLIDATION]
-        pattern:
-          type: string
-        last_resistance:
-          type: number
-        prev_resistance:
-          type: number
-        last_support:
-          type: number
-        prev_support:
-          type: number
-        bos_level:
-          type: number
-        choch_level:
-          type: number
-        pullback_level:
-          type: number
-        description:
-          type: string
-      required:
-        - trend
-        - description
-
     MACDData:
       type: object
       properties:
@@ -174,6 +143,10 @@ components:
           type: number
         histogram:
           type: number
+        macd_bullish:
+          type: boolean
+        macd_bearish:
+          type: boolean
         values:
           type: array
           items:
@@ -190,22 +163,26 @@ components:
         - macd
         - signal
         - histogram
+        - macd_bullish
+        - macd_bearish
 
     TSIData:
       type: object
       properties:
         value:
           type: number
+        is_oversold:
+          type: boolean
+        is_overbought:
+          type: boolean
         values:
           type: array
           items:
             type: number
-        strength:
-          type: string
-          enum: [STRONG, MODERATE, WEAK]
       required:
         - value
-        - strength
+        - is_oversold
+        - is_overbought
 
     SymbolAnalysis:
       type: object
@@ -218,34 +195,20 @@ components:
           type: number
         volatility:
           type: number
-        state:
-          type: string
-          enum: [PULLBACK, BOS_CONTINUATION, CHoCH_REVERSAL, IN_TREND, CONSOLIDATION]
         trend:
           type: string
-          enum: [UPTREND, DOWNTREND, CONSOLIDATION]
-        fractal_count:
+          enum: [UPTREND, DOWNTREND]
+        ema100:
           type: number
-        support:
+        ema350:
           type: number
-        resistance:
-          type: number
-        bos_level:
-          type: number
-        choch_level:
-          type: number
-        description:
+        signal:
           type: string
-        structure:
-          $ref: "#/components/schemas/TrendStructure"
+          enum: [BUY, SELL, NONE]
         tsi:
           $ref: "#/components/schemas/TSIData"
         macd:
           $ref: "#/components/schemas/MACDData"
-        last_fractals:
-          type: array
-          items:
-            $ref: "#/components/schemas/FractalLevel"
         last_updated:
           type: string
       required:
@@ -253,25 +216,21 @@ components:
         - name
         - price
         - volatility
-        - state
         - trend
-        - fractal_count
-        - description
+        - signal
 
     MarketSummary:
       type: object
       properties:
         timestamp:
           type: string
-        pullback_count:
+        buy_count:
           type: number
-        bos_count:
+        sell_count:
           type: number
-        choch_count:
+        uptrend_count:
           type: number
-        trending_count:
-          type: number
-        consolidation_count:
+        downtrend_count:
           type: number
         symbols:
           type: array
@@ -279,9 +238,42 @@ components:
             $ref: "#/components/schemas/SymbolAnalysis"
       required:
         - timestamp
-        - pullback_count
-        - bos_count
-        - choch_count
-        - trending_count
-        - consolidation_count
+        - buy_count
+        - sell_count
+        - uptrend_count
+        - downtrend_count
         - symbols
+
+    TradeRecord:
+      type: object
+      properties:
+        timestamp:
+          type: string
+        symbol:
+          type: string
+        side:
+          type: string
+          enum: [BUY, SELL]
+        contract_type:
+          type: string
+        contract_id:
+          type: string
+        ask_price:
+          type: number
+        multiplier:
+          type: number
+        tsi:
+          type: number
+        macd_histogram:
+          type: number
+        status:
+          type: string
+          enum: [PLACED, FAILED]
+        error:
+          type: ["string", "null"]
+      required:
+        - timestamp
+        - symbol
+        - side
+        - contract_type
+        - status

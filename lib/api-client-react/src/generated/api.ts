@@ -19,7 +19,8 @@ import type {
   Candle,
   HealthStatus,
   MarketSummary,
-  SymbolInfo
+  SymbolInfo,
+  TradeRecord
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -43,7 +44,6 @@ export const getHealthCheckUrl = () => {
 }
 
 /**
- * Returns server health status
  * @summary Health check
  */
 export const healthCheck = async ( options?: RequestInit): Promise<HealthStatus> => {
@@ -121,7 +121,6 @@ export const getGetMarketAnalysisUrl = () => {
 }
 
 /**
- * Returns fractal structure, TSI, MACD, and market state for all Deriv symbols
  * @summary Get full market analysis for all symbols
  */
 export const getMarketAnalysis = async ( options?: RequestInit): Promise<MarketSummary> => {
@@ -332,6 +331,83 @@ export function useGetSymbolList<TData = Awaited<ReturnType<typeof getSymbolList
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetSymbolListQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetTradeHistoryUrl = () => {
+
+
+
+
+  return `/api/market/trades`
+}
+
+/**
+ * @summary Get recent trade history placed by the bot
+ */
+export const getTradeHistory = async ( options?: RequestInit): Promise<TradeRecord[]> => {
+
+  return customFetch<TradeRecord[]>(getGetTradeHistoryUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTradeHistoryQueryKey = () => {
+    return [
+    `/api/market/trades`
+    ] as const;
+    }
+
+
+export const getGetTradeHistoryQueryOptions = <TData = Awaited<ReturnType<typeof getTradeHistory>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTradeHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTradeHistoryQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTradeHistory>>> = ({ signal }) => getTradeHistory({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTradeHistory>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetTradeHistoryQueryResult = NonNullable<Awaited<ReturnType<typeof getTradeHistory>>>
+export type GetTradeHistoryQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get recent trade history placed by the bot
+ */
+
+export function useGetTradeHistory<TData = Awaited<ReturnType<typeof getTradeHistory>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTradeHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetTradeHistoryQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

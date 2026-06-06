@@ -7,16 +7,14 @@
  */
 
 export * from './candle';
-export * from './fractalLevel';
-export * from './fractalLevelType';
 export * from './healthStatus';
 export * from './mACDData';
 export * from './marketSummary';
 export * from './symbolAnalysis';
-export * from './symbolAnalysisState';
+export * from './symbolAnalysisSignal';
 export * from './symbolAnalysisTrend';
 export * from './symbolInfo';
-export * from './trendStructure';
-export * from './trendStructureTrend';
+export * from './tradeRecord';
+export * from './tradeRecordSide';
+export * from './tradeRecordStatus';
 export * from './tSIData';
-export * from './tSIDataStrength';

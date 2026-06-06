@@ -5,10 +5,10 @@
  * Deriv Market Analysis API
  * OpenAPI spec version: 0.1.0
  */
-import type { TSIDataStrength } from './tSIDataStrength';
 
 export interface TSIData {
   value: number;
+  is_oversold: boolean;
+  is_overbought: boolean;
   values?: number[];
-  strength: TSIDataStrength;
 }

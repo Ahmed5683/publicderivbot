@@ -5,11 +5,9 @@
  * Deriv Market Analysis API
  * OpenAPI spec version: 0.1.0
  */
-import type { FractalLevel } from './fractalLevel';
 import type { MACDData } from './mACDData';
-import type { SymbolAnalysisState } from './symbolAnalysisState';
+import type { SymbolAnalysisSignal } from './symbolAnalysisSignal';
 import type { SymbolAnalysisTrend } from './symbolAnalysisTrend';
-import type { TrendStructure } from './trendStructure';
 import type { TSIData } from './tSIData';
 
 export interface SymbolAnalysis {
@@ -17,17 +15,11 @@ export interface SymbolAnalysis {
   name: string;
   price: number;
   volatility: number;
-  state: SymbolAnalysisState;
   trend: SymbolAnalysisTrend;
-  fractal_count: number;
-  support?: number;
-  resistance?: number;
-  bos_level?: number;
-  choch_level?: number;
-  description: string;
-  structure?: TrendStructure;
+  ema100?: number;
+  ema350?: number;
+  signal: SymbolAnalysisSignal;
   tsi?: TSIData;
   macd?: MACDData;
-  last_fractals?: FractalLevel[];
   last_updated?: string;
 }

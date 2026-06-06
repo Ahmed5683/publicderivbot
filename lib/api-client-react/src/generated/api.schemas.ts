@@ -23,76 +23,23 @@ export interface SymbolInfo {
   multiplier: number;
 }
 
-export type FractalLevelType = typeof FractalLevelType[keyof typeof FractalLevelType];
-
-
-export const FractalLevelType = {
-  SUPPORT: 'SUPPORT',
-  RESISTANCE: 'RESISTANCE',
-} as const;
-
-export interface FractalLevel {
-  type: FractalLevelType;
-  index: number;
-  price: number;
-}
-
-export type TrendStructureTrend = typeof TrendStructureTrend[keyof typeof TrendStructureTrend];
-
-
-export const TrendStructureTrend = {
-  UPTREND: 'UPTREND',
-  DOWNTREND: 'DOWNTREND',
-  CONSOLIDATION: 'CONSOLIDATION',
-} as const;
-
-export interface TrendStructure {
-  trend: TrendStructureTrend;
-  pattern?: string;
-  last_resistance?: number;
-  prev_resistance?: number;
-  last_support?: number;
-  prev_support?: number;
-  bos_level?: number;
-  choch_level?: number;
-  pullback_level?: number;
-  description: string;
-}
-
 export interface MACDData {
   macd: number;
   signal: number;
   histogram: number;
+  macd_bullish: boolean;
+  macd_bearish: boolean;
   values?: number[];
   signal_values?: number[];
   histogram_values?: number[];
 }
 
-export type TSIDataStrength = typeof TSIDataStrength[keyof typeof TSIDataStrength];
-
-
-export const TSIDataStrength = {
-  STRONG: 'STRONG',
-  MODERATE: 'MODERATE',
-  WEAK: 'WEAK',
-} as const;
-
 export interface TSIData {
   value: number;
+  is_oversold: boolean;
+  is_overbought: boolean;
   values?: number[];
-  strength: TSIDataStrength;
 }
-
-export type SymbolAnalysisState = typeof SymbolAnalysisState[keyof typeof SymbolAnalysisState];
-
-
-export const SymbolAnalysisState = {
-  PULLBACK: 'PULLBACK',
-  BOS_CONTINUATION: 'BOS_CONTINUATION',
-  CHoCH_REVERSAL: 'CHoCH_REVERSAL',
-  IN_TREND: 'IN_TREND',
-  CONSOLIDATION: 'CONSOLIDATION',
-} as const;
 
 export type SymbolAnalysisTrend = typeof SymbolAnalysisTrend[keyof typeof SymbolAnalysisTrend];
 
@@ -100,7 +47,15 @@ export type SymbolAnalysisTrend = typeof SymbolAnalysisTrend[keyof typeof Symbol
 export const SymbolAnalysisTrend = {
   UPTREND: 'UPTREND',
   DOWNTREND: 'DOWNTREND',
-  CONSOLIDATION: 'CONSOLIDATION',
+} as const;
+
+export type SymbolAnalysisSignal = typeof SymbolAnalysisSignal[keyof typeof SymbolAnalysisSignal];
+
+
+export const SymbolAnalysisSignal = {
+  BUY: 'BUY',
+  SELL: 'SELL',
+  NONE: 'NONE',
 } as const;
 
 export interface SymbolAnalysis {
@@ -108,28 +63,52 @@ export interface SymbolAnalysis {
   name: string;
   price: number;
   volatility: number;
-  state: SymbolAnalysisState;
   trend: SymbolAnalysisTrend;
-  fractal_count: number;
-  support?: number;
-  resistance?: number;
-  bos_level?: number;
-  choch_level?: number;
-  description: string;
-  structure?: TrendStructure;
+  ema100?: number;
+  ema350?: number;
+  signal: SymbolAnalysisSignal;
   tsi?: TSIData;
   macd?: MACDData;
-  last_fractals?: FractalLevel[];
   last_updated?: string;
 }
 
 export interface MarketSummary {
   timestamp: string;
-  pullback_count: number;
-  bos_count: number;
-  choch_count: number;
-  trending_count: number;
-  consolidation_count: number;
+  buy_count: number;
+  sell_count: number;
+  uptrend_count: number;
+  downtrend_count: number;
   symbols: SymbolAnalysis[];
+}
+
+export type TradeRecordSide = typeof TradeRecordSide[keyof typeof TradeRecordSide];
+
+
+export const TradeRecordSide = {
+  BUY: 'BUY',
+  SELL: 'SELL',
+} as const;
+
+export type TradeRecordStatus = typeof TradeRecordStatus[keyof typeof TradeRecordStatus];
+
+
+export const TradeRecordStatus = {
+  PLACED: 'PLACED',
+  FAILED: 'FAILED',
+} as const;
+
+export interface TradeRecord {
+  timestamp: string;
+  symbol: string;
+  side: TradeRecordSide;
+  contract_type: string;
+  contract_id?: string;
+  ask_price?: number;
+  multiplier?: number;
+  tsi?: number;
+  macd_histogram?: number;
+  status: TradeRecordStatus;
+  /** @nullable */
+  error?: string | null;
 }
 

@@ -10,6 +10,8 @@ export interface MACDData {
   macd: number;
   signal: number;
   histogram: number;
+  macd_bullish: boolean;
+  macd_bearish: boolean;
   values?: number[];
   signal_values?: number[];
   histogram_values?: number[];
