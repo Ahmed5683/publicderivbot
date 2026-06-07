@@ -202,52 +202,55 @@ def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
                 "bos_level": ll, "choch_level": None,
                 "description": f"BOS ▼ Close {price:.4f} < LL {ll:.4f} (-{(ll-price)/ll*100:.2f}%)"}
 
-    # ── CHoCH: use the short-period structural swing for immediate detection ──
-    # In UPTREND  → CHoCH fires as soon as price breaks the recent swing LOW
-    # In DOWNTREND → CHoCH fires as soon as price breaks the recent swing HIGH
-    # No need to wait for a new 36-bar fractal to form.
-    sw = structural_swing or {}
+    tsi_now = tsi_values[-1] if tsi_values else 0.0
+    sw      = structural_swing or {}
+
     if trend == "UPTREND":
+        # CHoCH ▼ — price breaks below recent structural support
+        # Use 5-bar swing low for immediate detection (no 36-bar wait)
         choch_support = sw.get("swing_low") or hl
         if choch_support is not None and price < choch_support:
             return {"state": "CHoCH_REVERSAL", "trend": trend,
                     "bos_level": None, "choch_level": choch_support,
-                    "description": (
-                        f"CHoCH ▼ Close {price:.4f} < Swing Low {choch_support:.4f}"
-                        f" — Bearish reversal signal"
-                    )}
+                    "description": f"CHoCH ▼ {price:.4f} < swing low {choch_support:.4f} — Bearish reversal"}
+
+        # PULLBACK ▲ — price has retreated BELOW the recent local high (swing high)
+        # Meaning: price peaked, is now coming back down toward support — that IS a pullback
+        # IN_TREND  — price is still AT or ABOVE the recent swing high (still climbing)
+        swing_high = sw.get("swing_high") or hh
+        if swing_high is not None and price < swing_high:
+            sup_desc = f" · support {choch_support:.4f}" if choch_support else ""
+            return {"state": "PULLBACK", "trend": trend,
+                    "bos_level": None, "choch_level": None,
+                    "description": f"Pullback ▲ {price:.4f} below peak {swing_high:.4f} · TSI {tsi_now:+.3f}{sup_desc}"}
+
+        desc = f"Uptrend: HH {hh or '—'} · HL {hl or '—'}"
+        if lh: desc += f" · LH {lh}"
+        return {"state": "IN_TREND", "trend": trend,
+                "bos_level": None, "choch_level": None, "description": desc}
+
     else:  # DOWNTREND
+        # CHoCH ▲ — price breaks above recent structural resistance
         choch_resistance = sw.get("swing_high") or lh
         if choch_resistance is not None and price > choch_resistance:
             return {"state": "CHoCH_REVERSAL", "trend": trend,
                     "bos_level": None, "choch_level": choch_resistance,
-                    "description": (
-                        f"CHoCH ▲ Close {price:.4f} > Swing High {choch_resistance:.4f}"
-                        f" — Bullish reversal signal"
-                    )}
+                    "description": f"CHoCH ▲ {price:.4f} > swing high {choch_resistance:.4f} — Bullish reversal"}
 
-    # ── PULLBACK: price is within the structural range ────────────────────────
-    # Definition: price has NOT broken a BOS or CHoCH level, so it is sitting
-    # between the key structural levels — that IS a pullback by definition.
-    # TSI slope is NOT used here; it is only used as an entry-timing condition
-    # in the trade engine (along with MACD crossover).
-    tsi_now = tsi_values[-1] if tsi_values else 0.0
-    if trend == "UPTREND":
-        key_lvl  = choch_support or hl
-        lvl_desc = f" · support {key_lvl:.4f}" if key_lvl else ""
-        return {
-            "state": "PULLBACK", "trend": trend,
-            "bos_level": None, "choch_level": None,
-            "description": f"Pullback ▲ price {price:.4f} in range · TSI {tsi_now:+.3f}{lvl_desc}",
-        }
-    else:
-        key_lvl  = choch_resistance or lh
-        lvl_desc = f" · resistance {key_lvl:.4f}" if key_lvl else ""
-        return {
-            "state": "PULLBACK", "trend": trend,
-            "bos_level": None, "choch_level": None,
-            "description": f"Pullback ▼ price {price:.4f} in range · TSI {tsi_now:+.3f}{lvl_desc}",
-        }
+        # PULLBACK ▼ — price has risen ABOVE the recent local low (swing low)
+        # Meaning: price bottomed, is now bouncing back up toward resistance — that IS a pullback
+        # IN_TREND  — price is still AT or BELOW the recent swing low (still falling)
+        swing_low = sw.get("swing_low") or ll
+        if swing_low is not None and price > swing_low:
+            res_desc = f" · resistance {choch_resistance:.4f}" if choch_resistance else ""
+            return {"state": "PULLBACK", "trend": trend,
+                    "bos_level": None, "choch_level": None,
+                    "description": f"Pullback ▼ {price:.4f} above trough {swing_low:.4f} · TSI {tsi_now:+.3f}{res_desc}"}
+
+        desc = f"Downtrend: LH {lh or '—'} · LL {ll or '—'}"
+        if hh: desc += f" · HH {hh}"
+        return {"state": "IN_TREND", "trend": trend,
+                "bos_level": None, "choch_level": None, "description": desc}
 
 
 # ──────────────────────────────────────────────────
