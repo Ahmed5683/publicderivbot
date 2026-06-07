@@ -10,7 +10,7 @@ name = "API Server"
 paths = ["/api"]
 
 [services.development]
-run = "python server.py"
+run = "python artifacts/api-server/server.py"
 
 [services.production]
 
@@ -18,7 +18,7 @@ run = "python server.py"
 args = ["echo", "no build needed"]
 
 [services.production.run]
-args = ["python", "server.py"]
+args = ["python", "artifacts/api-server/server.py"]
 
 [services.production.run.env]
 PORT = "8080"
