@@ -161,12 +161,12 @@ export default function SymbolDetail() {
       {symData && (
         <div className="px-5 pb-2 flex flex-wrap gap-2">
           <StatPill label="Volatility"      value={`${symData.volatility.toFixed(1)}%`}  color="text-foreground" />
-          <StatPill label="Fractals(55)"    value={`${symData.fractal_count}`}            color="text-cyan-400" />
+          <StatPill label="Fractals(36)"    value={`${symData.fractal_count}`}            color="text-cyan-400" />
           {symData.support    && <StatPill label="Support"    value={symData.support.toFixed(4)}    color="text-green-400" />}
           {symData.resistance && <StatPill label="Resistance" value={symData.resistance.toFixed(4)} color="text-red-400"   />}
           {tsi && (
             <StatPill
-              label="TSI Pearson r(55)"
+              label="TSI Pearson r"
               value={`${tsi.value >= 0 ? "+" : ""}${tsi.value.toFixed(3)}  ${tsiTag}`}
               color={tsiColor}
             />
@@ -216,7 +216,7 @@ export default function SymbolDetail() {
       {/* ── Footer ───────────────────────────────────────────── */}
       <div className="px-5 pb-5 text-[10px] font-mono text-[#4b5563]">
         TSI = Pearson r (−1 to +1) · Oversold &lt; −0.7 · Overbought &gt; +0.7 ·
-        Fractals period=55 · Green=HH/HL · Red=LH/LL
+        Fractals period=36 · Green=HH/HL · Red=LH/LL
       </div>
     </div>
   );

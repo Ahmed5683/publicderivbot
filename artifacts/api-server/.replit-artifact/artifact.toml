@@ -10,7 +10,7 @@ name = "API Server"
 paths = ["/api"]
 
 [services.development]
-run = "python artifacts/api-server/server.py"
+run = "python server.py"
 
 [services.production]
 

@@ -29,7 +29,7 @@ A real-time trading dashboard for Deriv synthetic volatility indices using Bill 
 - Python backend using `python-deriv-api` to connect to Deriv WebSocket API — matches original Python implementation exactly
 - 500 candles for trend/fractal analysis, 1000 candles for charting
 - In-memory cache with 60s TTL per endpoint — avoids hammering Deriv API
-- Fractal period = 55, MACD = (21, 55, 21), TSI period = 55
+- Fractal period = 36, MACD = (21, 55, 21), TSI period = 55
 - Trend Strength Index (TSI) = |sum of closes direction over N| / sum of |abs changes| × 100 — measures directional consistency (0=choppy, 100=strong one-direction trend)
 
 ## Product
@@ -43,7 +43,7 @@ A real-time trading dashboard for Deriv synthetic volatility indices using Bill 
 ## User preferences
 
 - Python backend (uses python-deriv-api, not Node.js)
-- Fractal period = 55
+- Fractal period = 36
 - MACD settings = (21, 55, 21)
 - TSI = Trend Strength Index (NOT True Strength Index), period 55
 - 1000 candles for chart, 500 candles for trend detection

@@ -30,10 +30,14 @@ function trendArrow(trend: Trend) {
 }
 
 function tsiDisplay(tsi: SymbolAnalysis["tsi"]) {
-  if (!tsi) return { label: "—", color: "text-muted-foreground" };
-  if (tsi.is_oversold)  return { label: `${tsi.value.toFixed(3)} OVS`, color: "text-green-400" };
-  if (tsi.is_overbought) return { label: `${tsi.value.toFixed(3)} OVB`, color: "text-red-400" };
-  return { label: tsi.value.toFixed(3), color: "text-cyan-400" };
+  if (!tsi) return { label: "—", color: "text-muted-foreground", slope: 0, slopeColor: "text-gray-500", slopeArrow: "→" };
+  const vals = tsi.values ?? [];
+  const slope = vals.length >= 5 ? vals[vals.length - 1] - vals[vals.length - 5] : 0;
+  const slopeArrow = slope >  0.003 ? "↑" : slope < -0.003 ? "↓" : "→";
+  const slopeColor = slope >  0.003 ? "text-green-400" : slope < -0.003 ? "text-red-400" : "text-gray-500";
+  if (tsi.is_oversold)   return { label: `${tsi.value.toFixed(3)} OVS`, color: "text-green-400", slope, slopeColor, slopeArrow };
+  if (tsi.is_overbought) return { label: `${tsi.value.toFixed(3)} OVB`, color: "text-red-400",   slope, slopeColor, slopeArrow };
+  return { label: tsi.value.toFixed(3), color: "text-cyan-400", slope, slopeColor, slopeArrow };
 }
 
 interface SummaryCardProps {
@@ -89,7 +93,7 @@ export default function Dashboard() {
             DERIV MARKET SCANNER
           </h1>
           <p className="text-xs text-muted-foreground font-mono mt-0.5">
-            Fractals(55) · TSI Pearson r(55) · MACD(21,55,21) · 500 candles for detection
+            Fractals(36) · TSI Pearson r(55) · MACD(21,55,21) · 500 candles for detection
           </p>
         </div>
         <div className="text-right">
@@ -149,6 +153,7 @@ export default function Dashboard() {
                     <th className="text-right px-4 py-3">Vol%</th>
                     <th className="text-center px-4 py-3">State</th>
                     <th className="text-center px-4 py-3">TSI(r)</th>
+                    <th className="text-center px-4 py-3">TSI Δ</th>
                     <th className="text-right px-4 py-3">MACD Hist</th>
                     <th className="text-right px-4 py-3">Frac</th>
                     <th className="text-left px-4 py-3">S / R</th>
@@ -156,7 +161,7 @@ export default function Dashboard() {
                 </thead>
                 <tbody>
                   {symbols.map((sym: SymbolAnalysis) => {
-                    const { label: tsiLbl, color: tsiClr } = tsiDisplay(sym.tsi);
+                    const { label: tsiLbl, color: tsiClr, slope, slopeColor, slopeArrow } = tsiDisplay(sym.tsi);
                     return (
                       <tr
                         key={sym.symbol}
@@ -187,6 +192,11 @@ export default function Dashboard() {
                         </td>
                         <td className={`px-4 py-3 text-center text-xs font-bold tabular-nums ${tsiClr}`}>
                           {tsiLbl}
+                        </td>
+                        <td className="px-4 py-3 text-center text-xs font-bold tabular-nums">
+                          <span className={slopeColor}>
+                            {slopeArrow} {slope !== 0 ? Math.abs(slope).toFixed(4) : "—"}
+                          </span>
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums text-xs">
                           {sym.macd ? (
@@ -253,9 +263,9 @@ export default function Dashboard() {
         )}
 
         <div className="text-xs font-mono text-muted-foreground border-t border-border pt-4">
-          TSI = Pearson r (−1 to +1) · Oversold &lt; −0.7 · Overbought &gt; +0.7 · Fractals period=55 ·
+          TSI = Pearson r (−1 to +1) · Oversold &lt; −0.7 · Overbought &gt; +0.7 · Fractals period=36 ·
           BOS = close above HH or below LL · CHoCH = close above LH or below HL ·
-          Pullback = TSI slope opposes trend
+          Pullback = TSI slope opposes trend · TSI Δ = slope over last 5 bars
         </div>
       </main>
     </div>

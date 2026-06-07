@@ -30,7 +30,7 @@ SYMBOL_CONFIG = {
     "R_100":   {"multiplier": 40,  "name": "R_100"},
 }
 
-FRACTAL_PERIOD = 55
+FRACTAL_PERIOD = 36
 TSI_PERIOD     = 55
 TSI_OVERSOLD   = -0.7
 TSI_OVERBOUGHT =  0.7
