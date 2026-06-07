@@ -196,11 +196,11 @@ def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
     if hh is not None and price > hh:
         return {"state": "BOS_CONTINUATION", "trend": trend,
                 "bos_level": hh, "choch_level": None,
-                "description": f"BOS ▲ Close {price:.4f} > HH {hh:.4f} (+{(price-hh)/hh*100:.2f}%)"}
+                "description": f"BOS ▲ Broke HH {hh:.4f} · Price {price:.4f} (+{(price-hh)/hh*100:.2f}%) · Uptrend continuation"}
     if ll is not None and price < ll:
         return {"state": "BOS_CONTINUATION", "trend": trend,
                 "bos_level": ll, "choch_level": None,
-                "description": f"BOS ▼ Close {price:.4f} < LL {ll:.4f} (-{(ll-price)/ll*100:.2f}%)"}
+                "description": f"BOS ▼ Broke LL {ll:.4f} · Price {price:.4f} (-{(ll-price)/ll*100:.2f}%) · Downtrend continuation"}
 
     tsi_now = tsi_values[-1] if tsi_values else 0.0
     sw      = structural_swing or {}
@@ -212,7 +212,7 @@ def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
         if choch_support is not None and price < choch_support:
             return {"state": "CHoCH_REVERSAL", "trend": trend,
                     "bos_level": None, "choch_level": choch_support,
-                    "description": f"CHoCH ▼ {price:.4f} < swing low {choch_support:.4f} — Bearish reversal"}
+                    "description": f"CHoCH ▼ Broke {choch_support:.4f} · Price {price:.4f} · Uptrend → Downtrend"}
 
         # PULLBACK ▲ — price has retreated BELOW the recent local high (swing high)
         # Meaning: price peaked, is now coming back down toward support — that IS a pullback
@@ -235,7 +235,7 @@ def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
         if choch_resistance is not None and price > choch_resistance:
             return {"state": "CHoCH_REVERSAL", "trend": trend,
                     "bos_level": None, "choch_level": choch_resistance,
-                    "description": f"CHoCH ▲ {price:.4f} > swing high {choch_resistance:.4f} — Bullish reversal"}
+                    "description": f"CHoCH ▲ Broke {choch_resistance:.4f} · Price {price:.4f} · Downtrend → Uptrend"}
 
         # PULLBACK ▼ — price has risen ABOVE the recent local low (swing low)
         # Meaning: price bottomed, is now bouncing back up toward resistance — that IS a pullback
