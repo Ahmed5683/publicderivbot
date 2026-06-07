@@ -180,11 +180,6 @@ def get_trend(classified: List[Dict]) -> str:
 # State detection
 # ──────────────────────────────────────────────────
 
-def _tsi_slope(tsi_values: List[float], lookback: int = 5) -> float:
-    if len(tsi_values) < lookback + 1:
-        return 0.0
-    return tsi_values[-1] - tsi_values[-lookback - 1]
-
 
 def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
                  structural_swing: Optional[Dict] = None) -> Dict[str, Any]:
@@ -213,7 +208,6 @@ def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
     # No need to wait for a new 36-bar fractal to form.
     sw = structural_swing or {}
     if trend == "UPTREND":
-        # Prefer recent structural swing low over the old 36-bar HL
         choch_support = sw.get("swing_low") or hl
         if choch_support is not None and price < choch_support:
             return {"state": "CHoCH_REVERSAL", "trend": trend,
@@ -223,7 +217,6 @@ def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
                         f" — Bearish reversal signal"
                     )}
     else:  # DOWNTREND
-        # Prefer recent structural swing high over the old 36-bar LH
         choch_resistance = sw.get("swing_high") or lh
         if choch_resistance is not None and price > choch_resistance:
             return {"state": "CHoCH_REVERSAL", "trend": trend,
@@ -233,29 +226,28 @@ def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
                         f" — Bullish reversal signal"
                     )}
 
-    slope = _tsi_slope(tsi_values)
-    is_pullback = (trend == "UPTREND" and slope < 0) or (trend == "DOWNTREND" and slope > 0)
-    if is_pullback:
-        tsi_now = tsi_values[-1] if tsi_values else 0.0
-        key_lvl = hl if trend == "UPTREND" else lh
-        lvl_desc = f" → key level {key_lvl:.4f}" if key_lvl else ""
+    # ── PULLBACK: price is within the structural range ────────────────────────
+    # Definition: price has NOT broken a BOS or CHoCH level, so it is sitting
+    # between the key structural levels — that IS a pullback by definition.
+    # TSI slope is NOT used here; it is only used as an entry-timing condition
+    # in the trade engine (along with MACD crossover).
+    tsi_now = tsi_values[-1] if tsi_values else 0.0
+    if trend == "UPTREND":
+        key_lvl  = choch_support or hl
+        lvl_desc = f" · support {key_lvl:.4f}" if key_lvl else ""
         return {
             "state": "PULLBACK", "trend": trend,
             "bos_level": None, "choch_level": None,
-            "description": (
-                f"Pullback ({trend}): TSI {'falling' if slope < 0 else 'rising'} "
-                f"({tsi_now:+.3f}, Δ{slope:+.4f}){lvl_desc}"
-            ),
+            "description": f"Pullback ▲ price {price:.4f} in range · TSI {tsi_now:+.3f}{lvl_desc}",
         }
-
-    if trend == "UPTREND":
-        desc = f"Uptrend: HH {hh or '—'} · HL {hl or '—'}"
-        if lh: desc += f" · LH {lh}"
     else:
-        desc = f"Downtrend: LH {lh or '—'} · LL {ll or '—'}"
-        if hh: desc += f" · HH {hh}"
-    return {"state": "IN_TREND", "trend": trend,
-            "bos_level": None, "choch_level": None, "description": desc}
+        key_lvl  = choch_resistance or lh
+        lvl_desc = f" · resistance {key_lvl:.4f}" if key_lvl else ""
+        return {
+            "state": "PULLBACK", "trend": trend,
+            "bos_level": None, "choch_level": None,
+            "description": f"Pullback ▼ price {price:.4f} in range · TSI {tsi_now:+.3f}{lvl_desc}",
+        }
 
 
 # ──────────────────────────────────────────────────
