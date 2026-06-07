@@ -32,6 +32,7 @@ SYMBOL_CONFIG = {
 }
 
 FRACTAL_PERIOD      = 36
+CHOCH_SWING_PERIOD  = 5     # shorter period for real-time CHoCH level detection
 TSI_PERIOD          = 55
 TSI_OVERSOLD        = -0.7
 TSI_OVERBOUGHT      =  0.7
@@ -140,6 +141,23 @@ def get_key_levels(classified: List[Dict]) -> Dict[str, Optional[float]]:
     return levels
 
 
+def get_structural_swing(highs: List[float], lows: List[float],
+                         period: int = CHOCH_SWING_PERIOD) -> Dict[str, Optional[float]]:
+    """
+    Detect the most recent swing high and swing low using a short look-back/look-ahead.
+    Used for CHoCH detection so we don't wait for the full FRACTAL_PERIOD confirmation.
+    """
+    n = len(highs)
+    last_swing_high: Optional[float] = None
+    last_swing_low:  Optional[float] = None
+    for i in range(period, n - period):
+        if all(highs[i] > highs[i - j] and highs[i] > highs[i + j] for j in range(1, period + 1)):
+            last_swing_high = round(highs[i], 4)
+        if all(lows[i] < lows[i - j] and lows[i] < lows[i + j] for j in range(1, period + 1)):
+            last_swing_low = round(lows[i], 4)
+    return {"swing_high": last_swing_high, "swing_low": last_swing_low}
+
+
 def get_trend(classified: List[Dict]) -> str:
     highs = [f for f in classified if f["type"] in ("HH", "LH")]
     lows  = [f for f in classified if f["type"] in ("HL", "LL")]
@@ -169,7 +187,8 @@ def _tsi_slope(tsi_values: List[float], lookback: int = 5) -> float:
     return tsi_values[-1] - tsi_values[-lookback - 1]
 
 
-def detect_state(price: float, classified: List[Dict], tsi_values: List[float]) -> Dict[str, Any]:
+def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
+                 structural_swing: Optional[Dict] = None) -> Dict[str, Any]:
     if not classified:
         return {"state": "IN_TREND", "trend": "UPTREND",
                 "bos_level": None, "choch_level": None,
@@ -179,6 +198,7 @@ def detect_state(price: float, classified: List[Dict], tsi_values: List[float]) 
     trend  = get_trend(classified)
     hh, hl, lh, ll = levels["HH"], levels["HL"], levels["LH"], levels["LL"]
 
+    # ── BOS: price breaks the confirmed major structure level ─────────────────
     if hh is not None and price > hh:
         return {"state": "BOS_CONTINUATION", "trend": trend,
                 "bos_level": hh, "choch_level": None,
@@ -188,14 +208,31 @@ def detect_state(price: float, classified: List[Dict], tsi_values: List[float]) 
                 "bos_level": ll, "choch_level": None,
                 "description": f"BOS ▼ Close {price:.4f} < LL {ll:.4f} (-{(ll-price)/ll*100:.2f}%)"}
 
-    if lh is not None and price > lh:
-        return {"state": "CHoCH_REVERSAL", "trend": trend,
-                "bos_level": None, "choch_level": lh,
-                "description": f"CHoCH ▲ Close {price:.4f} > LH {lh:.4f} — Bullish reversal signal"}
-    if hl is not None and price < hl:
-        return {"state": "CHoCH_REVERSAL", "trend": trend,
-                "bos_level": None, "choch_level": hl,
-                "description": f"CHoCH ▼ Close {price:.4f} < HL {hl:.4f} — Bearish reversal signal"}
+    # ── CHoCH: use the short-period structural swing for immediate detection ──
+    # In UPTREND  → CHoCH fires as soon as price breaks the recent swing LOW
+    # In DOWNTREND → CHoCH fires as soon as price breaks the recent swing HIGH
+    # No need to wait for a new 36-bar fractal to form.
+    sw = structural_swing or {}
+    if trend == "UPTREND":
+        # Prefer recent structural swing low over the old 36-bar HL
+        choch_support = sw.get("swing_low") or hl
+        if choch_support is not None and price < choch_support:
+            return {"state": "CHoCH_REVERSAL", "trend": trend,
+                    "bos_level": None, "choch_level": choch_support,
+                    "description": (
+                        f"CHoCH ▼ Close {price:.4f} < Swing Low {choch_support:.4f}"
+                        f" — Bearish reversal signal"
+                    )}
+    else:  # DOWNTREND
+        # Prefer recent structural swing high over the old 36-bar LH
+        choch_resistance = sw.get("swing_high") or lh
+        if choch_resistance is not None and price > choch_resistance:
+            return {"state": "CHoCH_REVERSAL", "trend": trend,
+                    "bos_level": None, "choch_level": choch_resistance,
+                    "description": (
+                        f"CHoCH ▲ Close {price:.4f} > Swing High {choch_resistance:.4f}"
+                        f" — Bullish reversal signal"
+                    )}
 
     slope = _tsi_slope(tsi_values)
     is_pullback = (trend == "UPTREND" and slope < 0) or (trend == "DOWNTREND" and slope > 0)
@@ -249,14 +286,15 @@ async def analyze_symbol(api: DerivAPI, symbol: str, config: Dict) -> Optional[D
         closes = [float(c["close"]) for c in candles]
         price  = closes[-1]
 
-        fractals   = get_fractals(highs, lows, FRACTAL_PERIOD)
-        classified = classify_fractals(fractals)
-        levels     = get_key_levels(classified)
+        fractals          = get_fractals(highs, lows, FRACTAL_PERIOD)
+        classified        = classify_fractals(fractals)
+        levels            = get_key_levels(classified)
+        structural_swing  = get_structural_swing(highs, lows, CHOCH_SWING_PERIOD)
 
         tsi  = calc_tsi(closes, TSI_PERIOD)
         macd = calc_macd(closes, fast=21, slow=55, signal=21)
 
-        state_info = detect_state(price, classified, tsi["values"])
+        state_info = detect_state(price, classified, tsi["values"], structural_swing)
         trend      = state_info["trend"]
 
         support    = levels["HL"] if trend == "UPTREND" else levels["LL"]
@@ -370,20 +408,23 @@ async def build_chart_data(symbol: str) -> Dict:
 # Auto-trading engine
 # ──────────────────────────────────────────────────
 
-def _macd_crossover(histogram_values: List[float]) -> Optional[str]:
+def _macd_crossover(histogram_values: List[float], lookback: int = 3) -> Optional[str]:
     """
-    Returns 'bullish' if MACD line just crossed above Signal (histogram flipped − → +),
-            'bearish' if MACD line just crossed below Signal (histogram flipped + → −),
-            None if no crossover on the last bar.
+    Returns 'bullish' if MACD crossed above Signal within the last `lookback` bars,
+            'bearish' if MACD crossed below Signal within the last `lookback` bars,
+            None otherwise.
+    Checking a 3-bar window avoids missing the crossover when it falls between scans.
     """
     if len(histogram_values) < 2:
         return None
-    prev = histogram_values[-2]
-    curr = histogram_values[-1]
-    if prev < 0 and curr > 0:
-        return "bullish"
-    if prev > 0 and curr < 0:
-        return "bearish"
+    window = histogram_values[-(lookback + 1):]
+    for i in range(1, len(window)):
+        prev = window[i - 1]
+        curr = window[i]
+        if prev < 0 and curr >= 0:
+            return "bullish"
+        if prev > 0 and curr <= 0:
+            return "bearish"
     return None
 
 
