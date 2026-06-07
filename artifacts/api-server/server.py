@@ -45,9 +45,8 @@ _chart_cache:         Dict[str, Dict]  = {}
 _chart_cache_time:    Dict[str, float] = {}
 
 # ── Trading state ─────────────────────────────────
-_auto_trade_enabled: bool      = False
-_trade_log:          List[Dict] = []          # capped at 50
-_trade_cooldown:     Dict[str, float] = {}    # symbol → last trade epoch
+_trade_log:      List[Dict] = []          # capped at 50
+_trade_cooldown: Dict[str, float] = {}    # symbol → last trade epoch
 
 
 # ──────────────────────────────────────────────────
@@ -350,9 +349,8 @@ async def run_full_analysis() -> Dict:
 
     await api.disconnect()
 
-    # Auto-trade: check each symbol in parallel
-    if _auto_trade_enabled:
-        await asyncio.gather(*[_trigger_trade_if_confirmed(r) for r in results])
+    # Auto-trade: always runs — check each symbol in parallel
+    await asyncio.gather(*[_trigger_trade_if_confirmed(r) for r in results])
 
     counts: Dict[str, int] = {
         "PULLBACK": 0, "BOS_CONTINUATION": 0, "CHoCH_REVERSAL": 0, "IN_TREND": 0,
@@ -520,7 +518,6 @@ async def _trigger_trade_if_confirmed(sym: Dict) -> None:
         "contract_id":   result.get("contract_id"),
         "ok":            result.get("ok", False),
         "error":         result.get("error"),
-        "manual":        False,
     }
     _trade_log.insert(0, entry)
     if len(_trade_log) > 50:
@@ -604,55 +601,9 @@ async def trading_status():
         if now - t < TRADE_COOLDOWN_SECS
     }
     return {
-        "enabled":   _auto_trade_enabled,
         "trades":    _trade_log,
         "cooldowns": cooldowns,
     }
-
-
-@router.post("/trading/toggle")
-async def trading_toggle():
-    global _auto_trade_enabled
-    _auto_trade_enabled = not _auto_trade_enabled
-    state = "ENABLED" if _auto_trade_enabled else "DISABLED"
-    print(f"[TRADE] Auto-trading {state}")
-    return {"enabled": _auto_trade_enabled}
-
-
-class ManualTradeRequest(BaseModel):
-    symbol:    str
-    direction: str   # "MULTUP" or "MULTDOWN"
-
-
-@router.post("/trading/manual")
-async def manual_trade(req: ManualTradeRequest):
-    if req.symbol not in SYMBOL_CONFIG:
-        raise HTTPException(status_code=400, detail="Unknown symbol")
-    if req.direction not in ("MULTUP", "MULTDOWN"):
-        raise HTTPException(status_code=400, detail="direction must be MULTUP or MULTDOWN")
-
-    result = await _place_multiplier_trade(req.symbol, req.direction)
-
-    entry = {
-        "timestamp":     datetime.utcnow().isoformat(),
-        "symbol":        req.symbol,
-        "direction":     "BUY" if req.direction == "MULTUP" else "SELL",
-        "contract_type": req.direction,
-        "trend":         "MANUAL",
-        "tsi":           None,
-        "macd_hist":     None,
-        "contract_id":   result.get("contract_id"),
-        "ok":            result.get("ok", False),
-        "error":         result.get("error"),
-        "manual":        True,
-    }
-    _trade_log.insert(0, entry)
-    if len(_trade_log) > 50:
-        _trade_log = _trade_log[:50]
-
-    if not result.get("ok"):
-        raise HTTPException(status_code=502, detail=result.get("error", "Trade failed"))
-    return result
 
 
 app.include_router(router)

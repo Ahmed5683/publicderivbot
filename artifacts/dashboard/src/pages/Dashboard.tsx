@@ -18,11 +18,9 @@ interface TradeEntry {
   contract_id:   string | null;
   ok:            boolean;
   error?:        string;
-  manual?:       boolean;
 }
 
 interface TradingStatus {
-  enabled:   boolean;
   trades:    TradeEntry[];
   cooldowns: Record<string, number>;
 }
@@ -60,21 +58,20 @@ function tsiDisplay(tsi: SymbolAnalysis["tsi"]) {
   return { label: tsi.value.toFixed(3), color: "text-cyan-400", slope, slopeColor, slopeArrow };
 }
 
-/** Returns true when the MACD × Signal crossover matches the trade direction */
 function macdCrossover(sym: SymbolAnalysis): "bullish" | "bearish" | null {
   const vals = sym.macd?.histogram_values ?? [];
   if (vals.length < 2) return null;
-  const prev = vals[vals.length - 2];
-  const curr = vals[vals.length - 1];
-  if (prev < 0 && curr > 0) return "bullish";
-  if (prev > 0 && curr < 0) return "bearish";
+  const window = vals.slice(-4);
+  for (let i = 1; i < window.length; i++) {
+    if (window[i - 1] < 0 && window[i] >= 0) return "bullish";
+    if (window[i - 1] > 0 && window[i] <= 0) return "bearish";
+  }
   return null;
 }
 
-/** All 3 trade conditions met for this symbol */
 function tradeSignalReady(sym: SymbolAnalysis): boolean {
   if (sym.state !== "PULLBACK") return false;
-  const tsiVal   = sym.tsi?.value ?? 0;
+  const tsiVal    = sym.tsi?.value ?? 0;
   const crossover = macdCrossover(sym);
   if (sym.trend === "UPTREND")   return tsiVal < -0.7 && crossover === "bullish";
   if (sym.trend === "DOWNTREND") return tsiVal >  0.7 && crossover === "bearish";
@@ -105,10 +102,7 @@ function CountdownBar({ seconds }: { seconds: number }) {
 export default function Dashboard() {
   const [, setLocation] = useLocation();
   const [countdown, setCountdown] = useState(60);
-
-  // Trading state
-  const [tradingStatus, setTradingStatus] = useState<TradingStatus>({ enabled: false, trades: [], cooldowns: {} });
-  const [toggleLoading, setToggleLoading] = useState(false);
+  const [tradingStatus, setTradingStatus] = useState<TradingStatus>({ trades: [], cooldowns: {} });
 
   const { data, isLoading, dataUpdatedAt, refetch } = useGetMarketAnalysis({
     query: { refetchInterval: 60_000, queryKey: getGetMarketAnalysisQueryKey() },
@@ -139,17 +133,6 @@ export default function Dashboard() {
     return () => clearInterval(id);
   }, [fetchTradingStatus]);
 
-  const toggleAutoTrade = async () => {
-    setToggleLoading(true);
-    try {
-      const res  = await fetch("/api/trading/toggle", { method: "POST" });
-      const data = await res.json();
-      setTradingStatus(prev => ({ ...prev, enabled: data.enabled }));
-    } finally {
-      setToggleLoading(false);
-    }
-  };
-
   const symbols: SymbolAnalysis[] = data?.symbols ?? [];
 
   return (
@@ -160,36 +143,21 @@ export default function Dashboard() {
             DERIV MARKET SCANNER
           </h1>
           <p className="text-xs text-muted-foreground font-mono mt-0.5">
-            Fractals(36) · TSI Pearson r(55) · MACD(21,55,21) · 500 candles for detection
+            Fractals(36) · TSI Pearson r(55) · MACD(21,55,21) · 500 candles · Auto-trading active
           </p>
         </div>
 
-        <div className="flex items-center gap-4">
-          {/* Auto-trade toggle */}
-          <button
-            onClick={toggleAutoTrade}
-            disabled={toggleLoading}
-            className={`px-3 py-1.5 rounded text-xs font-mono font-bold border transition-all ${
-              tradingStatus.enabled
-                ? "bg-green-500/15 text-green-400 border-green-500/40 hover:bg-green-500/25"
-                : "bg-muted/40 text-muted-foreground border-border hover:border-green-500/30 hover:text-green-400"
-            }`}
-          >
-            {toggleLoading ? "…" : tradingStatus.enabled ? "⚡ AUTO-TRADE ON" : "⚡ AUTO-TRADE OFF"}
-          </button>
-
-          <div className="text-right">
-            <div className="text-xs font-mono text-muted-foreground">
-              {data?.timestamp
-                ? new Date(data.timestamp + "Z").toLocaleTimeString()
-                : "Scanning..."}
-            </div>
-            <div className="text-xs font-mono text-muted-foreground mt-1">
-              Next scan in <span className="text-primary font-bold">{countdown}s</span>
-            </div>
-            <div className="mt-1 w-32">
-              <CountdownBar seconds={countdown} />
-            </div>
+        <div className="text-right">
+          <div className="text-xs font-mono text-muted-foreground">
+            {data?.timestamp
+              ? new Date(data.timestamp + "Z").toLocaleTimeString()
+              : "Scanning..."}
+          </div>
+          <div className="text-xs font-mono text-muted-foreground mt-1">
+            Next scan in <span className="text-primary font-bold">{countdown}s</span>
+          </div>
+          <div className="mt-1 w-32 ml-auto">
+            <CountdownBar seconds={countdown} />
           </div>
         </div>
       </header>
@@ -309,7 +277,7 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Pullback cards */}
+        {/* Pullback signal cards */}
         {!isLoading && symbols.filter(s => s.state === "PULLBACK").length > 0 && (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
             <div className="text-xs font-mono text-amber-400 font-semibold mb-3 uppercase tracking-widest">
@@ -317,10 +285,10 @@ export default function Dashboard() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {symbols.filter(s => s.state === "PULLBACK").map(s => {
-                const ready   = tradeSignalReady(s);
-                const cross   = macdCrossover(s);
-                const tsiOk   = s.trend === "UPTREND" ? (s.tsi?.value ?? 0) < -0.7 : (s.tsi?.value ?? 0) > 0.7;
-                const crossOk = s.trend === "UPTREND" ? cross === "bullish" : cross === "bearish";
+                const ready      = tradeSignalReady(s);
+                const cross      = macdCrossover(s);
+                const tsiOk      = s.trend === "UPTREND" ? (s.tsi?.value ?? 0) < -0.7 : (s.tsi?.value ?? 0) > 0.7;
+                const crossOk    = s.trend === "UPTREND" ? cross === "bullish" : cross === "bearish";
                 const inCooldown = (tradingStatus.cooldowns[s.symbol] ?? 0) > 0;
 
                 return (
@@ -334,7 +302,6 @@ export default function Dashboard() {
                     onClick={() => setLocation(`/symbol/${s.symbol}`)}
                     data-testid={`pullback-card-${s.symbol}`}
                   >
-                    {/* Header row */}
                     <div className="flex justify-between items-start mb-2">
                       <div className="flex items-center gap-2">
                         <span className="font-mono font-bold text-foreground">{s.symbol}</span>
@@ -346,7 +313,7 @@ export default function Dashboard() {
                           {s.trend === "UPTREND" ? "BUY" : "SELL"}
                         </span>
                         {ready && !inCooldown && (
-                          <span className="text-xs font-bold text-green-400 animate-pulse">⚡ AUTO-FIRING</span>
+                          <span className="text-xs font-bold text-green-400 animate-pulse">⚡ FIRING</span>
                         )}
                         {inCooldown && (
                           <span className="text-xs text-muted-foreground font-mono">⏱ {tradingStatus.cooldowns[s.symbol]}s</span>
@@ -355,7 +322,6 @@ export default function Dashboard() {
                       <span className="text-xs font-mono text-muted-foreground">{s.price.toFixed(4)}</span>
                     </div>
 
-                    {/* Condition checklist */}
                     <div className="space-y-0.5">
                       <div className={`text-xs font-mono flex items-center gap-1.5 ${
                         s.state === "PULLBACK" ? "text-green-400" : "text-muted-foreground"
@@ -377,14 +343,9 @@ export default function Dashboard() {
                           Waiting for all 3 conditions…
                         </div>
                       )}
-                      {ready && tradingStatus.enabled && !inCooldown && (
+                      {ready && !inCooldown && (
                         <div className="text-xs text-green-400/80 font-mono pt-0.5">
-                          ✓ Will auto-trade on next scan
-                        </div>
-                      )}
-                      {ready && !tradingStatus.enabled && (
-                        <div className="text-xs text-amber-400/80 font-mono pt-0.5">
-                          ⚠ Enable AUTO-TRADE to fire this signal
+                          ✓ Trading on next scan
                         </div>
                       )}
                     </div>
@@ -409,7 +370,6 @@ export default function Dashboard() {
                     <th className="text-left px-4 py-2">Time</th>
                     <th className="text-left px-4 py-2">Symbol</th>
                     <th className="text-center px-4 py-2">Direction</th>
-                    <th className="text-center px-4 py-2">Type</th>
                     <th className="text-right px-4 py-2">TSI</th>
                     <th className="text-right px-4 py-2">MACD Hist</th>
                     <th className="text-left px-4 py-2">Contract ID</th>
@@ -423,7 +383,7 @@ export default function Dashboard() {
                         {new Date(t.timestamp + "Z").toLocaleTimeString()}
                       </td>
                       <td className="px-4 py-2 font-bold text-foreground">{t.symbol}</td>
-                      <td className="px-4 py-2 text-center">
+                      <td className="px-4 py2 text-center">
                         <span className={`px-1.5 py-0.5 rounded font-bold ${
                           t.direction === "BUY"
                             ? "bg-green-500/15 text-green-400"
@@ -431,9 +391,6 @@ export default function Dashboard() {
                         }`}>
                           {t.direction}
                         </span>
-                      </td>
-                      <td className="px-4 py-2 text-center text-muted-foreground">
-                        {t.manual ? <span className="text-cyan-400/70">MANUAL</span> : "AUTO"}
                       </td>
                       <td className="px-4 py-2 text-right tabular-nums text-cyan-400">
                         {t.tsi !== null ? t.tsi.toFixed(3) : "—"}
@@ -463,8 +420,8 @@ export default function Dashboard() {
 
         <div className="text-xs font-mono text-muted-foreground border-t border-border pt-4">
           TSI = Pearson r (−1 to +1) · Oversold &lt; −0.7 · Overbought &gt; +0.7 · Fractals period=36 ·
-          BOS = close above HH or below LL · CHoCH = close above LH or below HL ·
-          Trade signal = PULLBACK + TSI extreme + MACD × Signal crossover · SL $0.50 · TP $1.00
+          BOS = close above HH or below LL · CHoCH = close above swing high or below swing low ·
+          Trade = PULLBACK + TSI extreme + MACD × Signal crossover · SL $0.50 · TP $1.00
         </div>
       </main>
     </div>
