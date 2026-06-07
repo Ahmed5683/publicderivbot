@@ -12,5 +12,4 @@ export type ChartDataTrend = typeof ChartDataTrend[keyof typeof ChartDataTrend];
 export const ChartDataTrend = {
   UPTREND: 'UPTREND',
   DOWNTREND: 'DOWNTREND',
-  CONSOLIDATION: 'CONSOLIDATION',
 } as const;

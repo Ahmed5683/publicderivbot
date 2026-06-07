@@ -12,5 +12,4 @@ export type TrendStructureTrend = typeof TrendStructureTrend[keyof typeof TrendS
 export const TrendStructureTrend = {
   UPTREND: 'UPTREND',
   DOWNTREND: 'DOWNTREND',
-  CONSOLIDATION: 'CONSOLIDATION',
 } as const;

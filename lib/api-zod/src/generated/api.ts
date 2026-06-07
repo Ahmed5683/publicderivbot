@@ -31,8 +31,8 @@ export const GetMarketAnalysisResponse = zod.object({
   "name": zod.string(),
   "price": zod.number(),
   "volatility": zod.number(),
-  "state": zod.enum(['PULLBACK', 'BOS_CONTINUATION', 'CHoCH_REVERSAL', 'IN_TREND', 'CONSOLIDATION']),
-  "trend": zod.enum(['UPTREND', 'DOWNTREND', 'CONSOLIDATION']),
+  "state": zod.enum(['PULLBACK', 'BOS_CONTINUATION', 'CHoCH_REVERSAL', 'IN_TREND']),
+  "trend": zod.enum(['UPTREND', 'DOWNTREND']),
   "fractal_count": zod.number(),
   "support": zod.number().nullish(),
   "resistance": zod.number().nullish(),
@@ -40,7 +40,7 @@ export const GetMarketAnalysisResponse = zod.object({
   "choch_level": zod.number().nullish(),
   "description": zod.string(),
   "structure": zod.object({
-  "trend": zod.enum(['UPTREND', 'DOWNTREND', 'CONSOLIDATION']),
+  "trend": zod.enum(['UPTREND', 'DOWNTREND']),
   "pattern": zod.string().optional(),
   "last_resistance": zod.number().optional(),
   "prev_resistance": zod.number().optional(),
@@ -84,7 +84,7 @@ export const GetChartDataParams = zod.object({
 
 export const GetChartDataResponse = zod.object({
   "symbol": zod.string(),
-  "trend": zod.enum(['UPTREND', 'DOWNTREND', 'CONSOLIDATION']),
+  "trend": zod.enum(['UPTREND', 'DOWNTREND']),
   "candles": zod.array(zod.object({
   "time": zod.number(),
   "open": zod.number(),

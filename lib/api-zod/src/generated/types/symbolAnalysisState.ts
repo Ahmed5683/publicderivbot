@@ -14,5 +14,4 @@ export const SymbolAnalysisState = {
   BOS_CONTINUATION: 'BOS_CONTINUATION',
   CHoCH_REVERSAL: 'CHoCH_REVERSAL',
   IN_TREND: 'IN_TREND',
-  CONSOLIDATION: 'CONSOLIDATION',
 } as const;

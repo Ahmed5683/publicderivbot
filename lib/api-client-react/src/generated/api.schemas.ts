@@ -59,7 +59,6 @@ export type ChartDataTrend = typeof ChartDataTrend[keyof typeof ChartDataTrend];
 export const ChartDataTrend = {
   UPTREND: 'UPTREND',
   DOWNTREND: 'DOWNTREND',
-  CONSOLIDATION: 'CONSOLIDATION',
 } as const;
 
 export interface ChartData {
@@ -85,7 +84,6 @@ export type TrendStructureTrend = typeof TrendStructureTrend[keyof typeof TrendS
 export const TrendStructureTrend = {
   UPTREND: 'UPTREND',
   DOWNTREND: 'DOWNTREND',
-  CONSOLIDATION: 'CONSOLIDATION',
 } as const;
 
 export interface TrendStructure {
@@ -125,7 +123,6 @@ export const SymbolAnalysisState = {
   BOS_CONTINUATION: 'BOS_CONTINUATION',
   CHoCH_REVERSAL: 'CHoCH_REVERSAL',
   IN_TREND: 'IN_TREND',
-  CONSOLIDATION: 'CONSOLIDATION',
 } as const;
 
 export type SymbolAnalysisTrend = typeof SymbolAnalysisTrend[keyof typeof SymbolAnalysisTrend];
@@ -134,7 +131,6 @@ export type SymbolAnalysisTrend = typeof SymbolAnalysisTrend[keyof typeof Symbol
 export const SymbolAnalysisTrend = {
   UPTREND: 'UPTREND',
   DOWNTREND: 'DOWNTREND',
-  CONSOLIDATION: 'CONSOLIDATION',
 } as const;
 
 export interface SymbolAnalysis {

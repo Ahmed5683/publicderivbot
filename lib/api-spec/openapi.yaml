@@ -154,7 +154,7 @@ components:
           type: string
         trend:
           type: string
-          enum: [UPTREND, DOWNTREND, CONSOLIDATION]
+          enum: [UPTREND, DOWNTREND]
         candles:
           type: array
           items:
@@ -188,7 +188,7 @@ components:
       properties:
         trend:
           type: string
-          enum: [UPTREND, DOWNTREND, CONSOLIDATION]
+          enum: [UPTREND, DOWNTREND]
         pattern:
           type: string
         last_resistance:
@@ -268,10 +268,10 @@ components:
           type: number
         state:
           type: string
-          enum: [PULLBACK, BOS_CONTINUATION, CHoCH_REVERSAL, IN_TREND, CONSOLIDATION]
+          enum: [PULLBACK, BOS_CONTINUATION, CHoCH_REVERSAL, IN_TREND]
         trend:
           type: string
-          enum: [UPTREND, DOWNTREND, CONSOLIDATION]
+          enum: [UPTREND, DOWNTREND]
         fractal_count:
           type: number
         support:

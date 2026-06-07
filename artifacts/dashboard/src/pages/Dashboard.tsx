@@ -4,31 +4,29 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useState, useEffect } from "react";
 import type { SymbolAnalysis } from "@workspace/api-client-react";
 
-type State = "PULLBACK" | "BOS_CONTINUATION" | "CHoCH_REVERSAL" | "IN_TREND" | "CONSOLIDATION";
-type Trend = "UPTREND" | "DOWNTREND" | "CONSOLIDATION";
+type State = "PULLBACK" | "BOS_CONTINUATION" | "CHoCH_REVERSAL" | "IN_TREND";
+type Trend = "UPTREND" | "DOWNTREND";
 
 function stateLabel(state: State, trend: Trend): string {
-  if (state === "PULLBACK") return trend === "UPTREND" ? "PULLBACK ▲" : "PULLBACK ▼";
-  if (state === "BOS_CONTINUATION") return "BOS";
-  if (state === "CHoCH_REVERSAL") return "CHoCH";
-  if (state === "IN_TREND") return trend === "UPTREND" ? "UPTREND ▲" : "DOWNTREND ▼";
-  return "CONSOLIDATION";
+  if (state === "PULLBACK")         return trend === "UPTREND" ? "PULLBACK ▲" : "PULLBACK ▼";
+  if (state === "BOS_CONTINUATION") return trend === "UPTREND" ? "BOS ▲" : "BOS ▼";
+  if (state === "CHoCH_REVERSAL")   return trend === "UPTREND" ? "CHoCH ▲" : "CHoCH ▼";
+  return trend === "UPTREND" ? "UPTREND ▲" : "DOWNTREND ▼";
 }
 
 function stateClass(state: State, trend: Trend): string {
-  if (state === "PULLBACK") return "bg-amber-500/10 text-amber-400 border-amber-500/30";
+  if (state === "PULLBACK")         return "bg-amber-500/10 text-amber-400 border-amber-500/30";
   if (state === "BOS_CONTINUATION") return "bg-cyan-500/10 text-cyan-400 border-cyan-500/30";
-  if (state === "CHoCH_REVERSAL") return "bg-purple-500/10 text-purple-400 border-purple-500/30";
-  if (state === "IN_TREND") return trend === "UPTREND"
+  if (state === "CHoCH_REVERSAL")   return "bg-purple-500/10 text-purple-400 border-purple-500/30";
+  return trend === "UPTREND"
     ? "bg-green-500/10 text-green-400 border-green-500/30"
     : "bg-red-500/10 text-red-400 border-red-500/30";
-  return "bg-gray-500/10 text-gray-400 border-gray-500/30";
 }
 
 function trendArrow(trend: Trend) {
-  if (trend === "UPTREND")   return <span className="text-green-400 font-bold">▲</span>;
-  if (trend === "DOWNTREND") return <span className="text-red-400 font-bold">▼</span>;
-  return <span className="text-gray-400">◆</span>;
+  return trend === "UPTREND"
+    ? <span className="text-green-400 font-bold">▲</span>
+    : <span className="text-red-400 font-bold">▼</span>;
 }
 
 function tsiDisplay(tsi: SymbolAnalysis["tsi"]) {
@@ -111,18 +109,17 @@ export default function Dashboard() {
 
       <main className="px-6 py-5 space-y-6">
         {/* Summary cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {isLoading ? (
-            Array.from({ length: 5 }).map((_, i) => (
+            Array.from({ length: 4 }).map((_, i) => (
               <Skeleton key={i} className="h-20 rounded-lg" />
             ))
           ) : (
             <>
-              <SummaryCard label="Pullbacks"     count={data?.pullback_count ?? 0}     colorClass="bg-amber-500/10 border-amber-500/25 text-amber-400"  icon="↩" />
-              <SummaryCard label="BOS"           count={data?.bos_count ?? 0}           colorClass="bg-cyan-500/10 border-cyan-500/25 text-cyan-400"    icon="⬡" />
-              <SummaryCard label="CHoCH"         count={data?.choch_count ?? 0}         colorClass="bg-purple-500/10 border-purple-500/25 text-purple-400" icon="⚡" />
-              <SummaryCard label="Trending"      count={data?.trending_count ?? 0}      colorClass="bg-green-500/10 border-green-500/25 text-green-400"  icon="◎" />
-              <SummaryCard label="Consolidation" count={data?.consolidation_count ?? 0} colorClass="bg-gray-500/10 border-gray-500/25 text-gray-400"    icon="◇" />
+              <SummaryCard label="Pullbacks" count={data?.pullback_count ?? 0} colorClass="bg-amber-500/10 border-amber-500/25 text-amber-400"    icon="↩" />
+              <SummaryCard label="BOS"       count={data?.bos_count ?? 0}      colorClass="bg-cyan-500/10 border-cyan-500/25 text-cyan-400"       icon="⬡" />
+              <SummaryCard label="CHoCH"     count={data?.choch_count ?? 0}    colorClass="bg-purple-500/10 border-purple-500/25 text-purple-400"  icon="⚡" />
+              <SummaryCard label="In Trend"  count={data?.trending_count ?? 0} colorClass="bg-green-500/10 border-green-500/25 text-green-400"     icon="◎" />
             </>
           )}
         </div>
@@ -256,7 +253,9 @@ export default function Dashboard() {
         )}
 
         <div className="text-xs font-mono text-muted-foreground border-t border-border pt-4">
-          TSI = Pearson r (−1 to +1) · Oversold &lt; −0.7 · Overbought &gt; +0.7 · Fractals period=55 · Support=Down Fractal · Resistance=Up Fractal
+          TSI = Pearson r (−1 to +1) · Oversold &lt; −0.7 · Overbought &gt; +0.7 · Fractals period=55 ·
+          BOS = close above HH or below LL · CHoCH = close above LH or below HL ·
+          Pullback = TSI slope opposes trend
         </div>
       </main>
     </div>
