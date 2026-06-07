@@ -206,9 +206,8 @@ def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
     sw      = structural_swing or {}
 
     if trend == "UPTREND":
-        # CHoCH ▼ — price breaks below recent structural support
-        # Use 5-bar swing low for immediate detection (no 36-bar wait)
-        choch_support = sw.get("swing_low") or hl
+        # CHoCH ▼ — price breaks below confirmed HL fractal (primary) or 5-bar swing low (fallback)
+        choch_support = hl or sw.get("swing_low")
         if choch_support is not None and price < choch_support:
             return {"state": "CHoCH_REVERSAL", "trend": trend,
                     "bos_level": None, "choch_level": choch_support,
@@ -231,7 +230,7 @@ def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
 
     else:  # DOWNTREND
         # CHoCH ▲ — price breaks above recent structural resistance
-        choch_resistance = sw.get("swing_high") or lh
+        choch_resistance = lh or sw.get("swing_high")
         if choch_resistance is not None and price > choch_resistance:
             return {"state": "CHoCH_REVERSAL", "trend": trend,
                     "bos_level": None, "choch_level": choch_resistance,
