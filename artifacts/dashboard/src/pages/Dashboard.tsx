@@ -107,9 +107,8 @@ export default function Dashboard() {
   const [countdown, setCountdown] = useState(60);
 
   // Trading state
-  const [tradingStatus, setTradingStatus]   = useState<TradingStatus>({ enabled: false, trades: [], cooldowns: {} });
-  const [tradeLoading, setTradeLoading]     = useState<Record<string, boolean>>({});
-  const [toggleLoading, setToggleLoading]   = useState(false);
+  const [tradingStatus, setTradingStatus] = useState<TradingStatus>({ enabled: false, trades: [], cooldowns: {} });
+  const [toggleLoading, setToggleLoading] = useState(false);
 
   const { data, isLoading, dataUpdatedAt, refetch } = useGetMarketAnalysis({
     query: { refetchInterval: 60_000, queryKey: getGetMarketAnalysisQueryKey() },
@@ -148,20 +147,6 @@ export default function Dashboard() {
       setTradingStatus(prev => ({ ...prev, enabled: data.enabled }));
     } finally {
       setToggleLoading(false);
-    }
-  };
-
-  const placeTrade = async (symbol: string, direction: "MULTUP" | "MULTDOWN") => {
-    setTradeLoading(prev => ({ ...prev, [symbol]: true }));
-    try {
-      await fetch("/api/trading/manual", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ symbol, direction }),
-      });
-      await fetchTradingStatus();
-    } finally {
-      setTradeLoading(prev => ({ ...prev, [symbol]: false }));
     }
   };
 
@@ -332,22 +317,21 @@ export default function Dashboard() {
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {symbols.filter(s => s.state === "PULLBACK").map(s => {
-                const ready      = tradeSignalReady(s);
-                const cross      = macdCrossover(s);
-                const tsiOk      = s.trend === "UPTREND" ? (s.tsi?.value ?? 0) < -0.7 : (s.tsi?.value ?? 0) > 0.7;
-                const crossOk    = s.trend === "UPTREND" ? cross === "bullish" : cross === "bearish";
-                const direction  = s.trend === "UPTREND" ? "MULTUP" : "MULTDOWN";
+                const ready   = tradeSignalReady(s);
+                const cross   = macdCrossover(s);
+                const tsiOk   = s.trend === "UPTREND" ? (s.tsi?.value ?? 0) < -0.7 : (s.tsi?.value ?? 0) > 0.7;
+                const crossOk = s.trend === "UPTREND" ? cross === "bullish" : cross === "bearish";
                 const inCooldown = (tradingStatus.cooldowns[s.symbol] ?? 0) > 0;
 
                 return (
                   <div
                     key={s.symbol}
-                    className={`rounded border bg-card p-3 transition-colors ${
+                    className={`rounded border bg-card p-3 cursor-pointer transition-colors ${
                       ready
                         ? "border-green-500/50 shadow-[0_0_12px_rgba(34,197,94,0.15)]"
-                        : "border-amber-500/20 hover:border-amber-500/40 cursor-pointer"
+                        : "border-amber-500/20 hover:border-amber-500/40"
                     }`}
-                    onClick={ready ? undefined : () => setLocation(`/symbol/${s.symbol}`)}
+                    onClick={() => setLocation(`/symbol/${s.symbol}`)}
                     data-testid={`pullback-card-${s.symbol}`}
                   >
                     {/* Header row */}
@@ -361,15 +345,18 @@ export default function Dashboard() {
                         }`}>
                           {s.trend === "UPTREND" ? "BUY" : "SELL"}
                         </span>
-                        {ready && (
-                          <span className="text-xs font-bold text-green-400 animate-pulse">● SIGNAL</span>
+                        {ready && !inCooldown && (
+                          <span className="text-xs font-bold text-green-400 animate-pulse">⚡ AUTO-FIRING</span>
+                        )}
+                        {inCooldown && (
+                          <span className="text-xs text-muted-foreground font-mono">⏱ {tradingStatus.cooldowns[s.symbol]}s</span>
                         )}
                       </div>
                       <span className="text-xs font-mono text-muted-foreground">{s.price.toFixed(4)}</span>
                     </div>
 
                     {/* Condition checklist */}
-                    <div className="space-y-0.5 mb-2">
+                    <div className="space-y-0.5">
                       <div className={`text-xs font-mono flex items-center gap-1.5 ${
                         s.state === "PULLBACK" ? "text-green-400" : "text-muted-foreground"
                       }`}>
@@ -385,32 +372,22 @@ export default function Dashboard() {
                       }`}>
                         {crossOk ? "✓" : "✗"} MACD × Signal {s.trend === "UPTREND" ? "bullish" : "bearish"} crossover
                       </div>
+                      {!ready && (
+                        <div className="text-xs text-muted-foreground/50 font-mono pt-0.5">
+                          Waiting for all 3 conditions…
+                        </div>
+                      )}
+                      {ready && tradingStatus.enabled && !inCooldown && (
+                        <div className="text-xs text-green-400/80 font-mono pt-0.5">
+                          ✓ Will auto-trade on next scan
+                        </div>
+                      )}
+                      {ready && !tradingStatus.enabled && (
+                        <div className="text-xs text-amber-400/80 font-mono pt-0.5">
+                          ⚠ Enable AUTO-TRADE to fire this signal
+                        </div>
+                      )}
                     </div>
-
-                    {/* Trade button */}
-                    {ready ? (
-                      <button
-                        onClick={e => { e.stopPropagation(); placeTrade(s.symbol, direction as "MULTUP" | "MULTDOWN"); }}
-                        disabled={tradeLoading[s.symbol] || inCooldown}
-                        className={`w-full mt-1 py-1.5 rounded text-xs font-mono font-bold transition-all border ${
-                          inCooldown
-                            ? "bg-muted/30 text-muted-foreground border-border cursor-not-allowed"
-                            : tradeLoading[s.symbol]
-                            ? "bg-green-500/20 text-green-400 border-green-500/30 opacity-60"
-                            : "bg-green-500/20 text-green-400 border-green-500/40 hover:bg-green-500/30"
-                        }`}
-                      >
-                        {tradeLoading[s.symbol]
-                          ? "Placing…"
-                          : inCooldown
-                          ? `⏱ Cooldown ${tradingStatus.cooldowns[s.symbol]}s`
-                          : `⚡ TRADE NOW — ${direction}`}
-                      </button>
-                    ) : (
-                      <div className="text-xs text-muted-foreground/60 font-mono mt-1">
-                        Waiting for all 3 conditions…
-                      </div>
-                    )}
                   </div>
                 );
               })}
