@@ -160,6 +160,15 @@ def get_structural_swing(highs: List[float], lows: List[float],
     return {"swing_high": last_swing_high, "swing_low": last_swing_low}
 
 
+def filter_by_trend(classified: List[Dict], trend: str) -> List[Dict]:
+    """Keep only fractals that belong to the current trend direction.
+    UPTREND  → HH + HL only  (no LH / LL)
+    DOWNTREND → LH + LL only  (no HH / HL)
+    """
+    keep = ("HH", "HL") if trend == "UPTREND" else ("LH", "LL")
+    return [f for f in classified if f["type"] in keep]
+
+
 def get_trend(classified: List[Dict]) -> str:
     highs = [f for f in classified if f["type"] in ("HH", "LH")]
     lows  = [f for f in classified if f["type"] in ("HL", "LL")]
@@ -191,11 +200,12 @@ def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
                 "bos_level": None, "choch_level": None,
                 "description": "No fractal structure yet"}
 
-    levels = get_key_levels(classified)
-    trend  = get_trend(classified)
+    trend    = get_trend(classified)
+    filtered = filter_by_trend(classified, trend)   # UPTREND→HH/HL only · DOWNTREND→LH/LL only
+    levels   = get_key_levels(filtered)
     hh, hl, lh, ll = levels["HH"], levels["HL"], levels["LH"], levels["LL"]
-    tsi_now = tsi_values[-1] if tsi_values else 0.0
-    sw      = structural_swing or {}
+    tsi_now  = tsi_values[-1] if tsi_values else 0.0
+    sw       = structural_swing or {}
 
     if trend == "UPTREND":
         # ── BOS ▲ — price breaks above HH → uptrend continuation ────────────
@@ -204,13 +214,7 @@ def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
                     "bos_level": hh, "choch_level": None,
                     "description": f"BOS ▲ Broke HH {hh:.4f} · Price {price:.4f} (+{(price-hh)/hh*100:.2f}%) · Uptrend continuation"}
 
-        # ── CHoCH ▼ (structural) — price breaks below LL (full structure break) ──
-        if ll is not None and price < ll:
-            return {"state": "CHoCH_REVERSAL", "trend": "DOWNTREND",
-                    "bos_level": None, "choch_level": ll,
-                    "description": f"CHoCH ▼ Broke LL {ll:.4f} · Price {price:.4f} · Uptrend → Downtrend (structural)"}
-
-        # ── CHoCH ▼ (regular) — price breaks below confirmed HL ─────────────
+        # ── CHoCH ▼ — price breaks below confirmed HL → trend reversal ───────
         choch_support = hl or sw.get("swing_low")
         if choch_support is not None and price < choch_support:
             return {"state": "CHoCH_REVERSAL", "trend": "DOWNTREND",
@@ -225,10 +229,9 @@ def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
                     "bos_level": None, "choch_level": None,
                     "description": f"Pullback ▲ {price:.4f} below peak {swing_high:.4f} · TSI {tsi_now:+.3f}{sup_desc}"}
 
-        desc = f"Uptrend: HH {hh or '—'} · HL {hl or '—'}"
-        if lh: desc += f" · LH {lh}"
         return {"state": "IN_TREND", "trend": "UPTREND",
-                "bos_level": None, "choch_level": None, "description": desc}
+                "bos_level": None, "choch_level": None,
+                "description": f"Uptrend: HH {hh or '—'} · HL {hl or '—'}"}
 
     else:  # DOWNTREND
         # ── BOS ▼ — price breaks below LL → downtrend continuation ──────────
@@ -237,13 +240,7 @@ def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
                     "bos_level": ll, "choch_level": None,
                     "description": f"BOS ▼ Broke LL {ll:.4f} · Price {price:.4f} (-{(ll-price)/ll*100:.2f}%) · Downtrend continuation"}
 
-        # ── CHoCH ▲ (structural) — price breaks above HH (full structure break) ─
-        if hh is not None and price > hh:
-            return {"state": "CHoCH_REVERSAL", "trend": "UPTREND",
-                    "bos_level": None, "choch_level": hh,
-                    "description": f"CHoCH ▲ Broke HH {hh:.4f} · Price {price:.4f} · Downtrend → Uptrend (structural)"}
-
-        # ── CHoCH ▲ (regular) — price breaks above confirmed LH ─────────────
+        # ── CHoCH ▲ — price breaks above confirmed LH → trend reversal ───────
         choch_resistance = lh or sw.get("swing_high")
         if choch_resistance is not None and price > choch_resistance:
             return {"state": "CHoCH_REVERSAL", "trend": "UPTREND",
@@ -258,10 +255,9 @@ def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
                     "bos_level": None, "choch_level": None,
                     "description": f"Pullback ▼ {price:.4f} above trough {swing_low:.4f} · TSI {tsi_now:+.3f}{res_desc}"}
 
-        desc = f"Downtrend: LH {lh or '—'} · LL {ll or '—'}"
-        if hh: desc += f" · HH {hh}"
         return {"state": "IN_TREND", "trend": "DOWNTREND",
-                "bos_level": None, "choch_level": None, "description": desc}
+                "bos_level": None, "choch_level": None,
+                "description": f"Downtrend: LH {lh or '—'} · LL {ll or '—'}"}
 
 
 # ──────────────────────────────────────────────────
@@ -293,7 +289,6 @@ async def analyze_symbol(api: DerivAPI, symbol: str, config: Dict) -> Optional[D
 
         fractals          = get_fractals(highs, lows, FRACTAL_PERIOD)
         classified        = classify_fractals(fractals)
-        levels            = get_key_levels(classified)
         structural_swing  = get_structural_swing(highs, lows, CHOCH_SWING_PERIOD)
 
         tsi  = calc_tsi(closes, TSI_PERIOD)
@@ -302,6 +297,8 @@ async def analyze_symbol(api: DerivAPI, symbol: str, config: Dict) -> Optional[D
         state_info = detect_state(price, classified, tsi["values"], structural_swing)
         trend      = state_info["trend"]
 
+        filtered   = filter_by_trend(classified, trend)  # only trend-consistent fractals
+        levels     = get_key_levels(filtered)
         support    = levels["HL"] if trend == "UPTREND" else levels["LL"]
         resistance = levels["HH"] if trend == "UPTREND" else levels["LH"]
 
@@ -334,7 +331,7 @@ async def analyze_symbol(api: DerivAPI, symbol: str, config: Dict) -> Optional[D
             "structure":     structure,
             "tsi":           tsi,
             "macd":          macd,
-            "last_fractals": classified[-4:],
+            "last_fractals": filtered[-4:],
             "last_updated":  datetime.utcnow().isoformat(),
         }
     except Exception as e:
@@ -385,9 +382,10 @@ async def build_chart_data(symbol: str) -> Dict:
     lows  = [float(c["low"])  for c in candles]
 
     raw_fractals = get_fractals(highs, lows, FRACTAL_PERIOD)
-    markers      = classify_fractals(raw_fractals)
+    all_markers  = classify_fractals(raw_fractals)
+    trend        = get_trend(all_markers)
+    markers      = filter_by_trend(all_markers, trend)   # only trend-consistent labels
     levels       = get_key_levels(markers)
-    trend        = get_trend(markers)
 
     candle_data = [
         {"time": c["epoch"], "open": float(c["open"]), "high": float(c["high"]),
