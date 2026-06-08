@@ -194,64 +194,73 @@ def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
     levels = get_key_levels(classified)
     trend  = get_trend(classified)
     hh, hl, lh, ll = levels["HH"], levels["HL"], levels["LH"], levels["LL"]
-
-    # ── BOS: price breaks the confirmed major structure level ─────────────────
-    if hh is not None and price > hh:
-        return {"state": "BOS_CONTINUATION", "trend": trend,
-                "bos_level": hh, "choch_level": None,
-                "description": f"BOS ▲ Broke HH {hh:.4f} · Price {price:.4f} (+{(price-hh)/hh*100:.2f}%) · Uptrend continuation"}
-    if ll is not None and price < ll:
-        return {"state": "BOS_CONTINUATION", "trend": trend,
-                "bos_level": ll, "choch_level": None,
-                "description": f"BOS ▼ Broke LL {ll:.4f} · Price {price:.4f} (-{(ll-price)/ll*100:.2f}%) · Downtrend continuation"}
-
     tsi_now = tsi_values[-1] if tsi_values else 0.0
     sw      = structural_swing or {}
 
     if trend == "UPTREND":
-        # CHoCH ▼ — price breaks below confirmed HL fractal (primary) or 5-bar swing low (fallback)
+        # ── BOS ▲ — price breaks above HH → uptrend continuation ────────────
+        if hh is not None and price > hh:
+            return {"state": "BOS_CONTINUATION", "trend": "UPTREND",
+                    "bos_level": hh, "choch_level": None,
+                    "description": f"BOS ▲ Broke HH {hh:.4f} · Price {price:.4f} (+{(price-hh)/hh*100:.2f}%) · Uptrend continuation"}
+
+        # ── CHoCH ▼ (structural) — price breaks below LL (full structure break) ──
+        if ll is not None and price < ll:
+            return {"state": "CHoCH_REVERSAL", "trend": "DOWNTREND",
+                    "bos_level": None, "choch_level": ll,
+                    "description": f"CHoCH ▼ Broke LL {ll:.4f} · Price {price:.4f} · Uptrend → Downtrend (structural)"}
+
+        # ── CHoCH ▼ (regular) — price breaks below confirmed HL ─────────────
         choch_support = hl or sw.get("swing_low")
         if choch_support is not None and price < choch_support:
-            return {"state": "CHoCH_REVERSAL", "trend": trend,
+            return {"state": "CHoCH_REVERSAL", "trend": "DOWNTREND",
                     "bos_level": None, "choch_level": choch_support,
                     "description": f"CHoCH ▼ Broke {choch_support:.4f} · Price {price:.4f} · Uptrend → Downtrend"}
 
-        # PULLBACK ▲ — price has retreated BELOW the recent local high (swing high)
-        # Meaning: price peaked, is now coming back down toward support — that IS a pullback
-        # IN_TREND  — price is still AT or ABOVE the recent swing high (still climbing)
+        # ── PULLBACK ▲ — price retreated below recent swing high ─────────────
         swing_high = sw.get("swing_high") or hh
         if swing_high is not None and price < swing_high:
             sup_desc = f" · support {choch_support:.4f}" if choch_support else ""
-            return {"state": "PULLBACK", "trend": trend,
+            return {"state": "PULLBACK", "trend": "UPTREND",
                     "bos_level": None, "choch_level": None,
                     "description": f"Pullback ▲ {price:.4f} below peak {swing_high:.4f} · TSI {tsi_now:+.3f}{sup_desc}"}
 
         desc = f"Uptrend: HH {hh or '—'} · HL {hl or '—'}"
         if lh: desc += f" · LH {lh}"
-        return {"state": "IN_TREND", "trend": trend,
+        return {"state": "IN_TREND", "trend": "UPTREND",
                 "bos_level": None, "choch_level": None, "description": desc}
 
     else:  # DOWNTREND
-        # CHoCH ▲ — price breaks above recent structural resistance
+        # ── BOS ▼ — price breaks below LL → downtrend continuation ──────────
+        if ll is not None and price < ll:
+            return {"state": "BOS_CONTINUATION", "trend": "DOWNTREND",
+                    "bos_level": ll, "choch_level": None,
+                    "description": f"BOS ▼ Broke LL {ll:.4f} · Price {price:.4f} (-{(ll-price)/ll*100:.2f}%) · Downtrend continuation"}
+
+        # ── CHoCH ▲ (structural) — price breaks above HH (full structure break) ─
+        if hh is not None and price > hh:
+            return {"state": "CHoCH_REVERSAL", "trend": "UPTREND",
+                    "bos_level": None, "choch_level": hh,
+                    "description": f"CHoCH ▲ Broke HH {hh:.4f} · Price {price:.4f} · Downtrend → Uptrend (structural)"}
+
+        # ── CHoCH ▲ (regular) — price breaks above confirmed LH ─────────────
         choch_resistance = lh or sw.get("swing_high")
         if choch_resistance is not None and price > choch_resistance:
-            return {"state": "CHoCH_REVERSAL", "trend": trend,
+            return {"state": "CHoCH_REVERSAL", "trend": "UPTREND",
                     "bos_level": None, "choch_level": choch_resistance,
                     "description": f"CHoCH ▲ Broke {choch_resistance:.4f} · Price {price:.4f} · Downtrend → Uptrend"}
 
-        # PULLBACK ▼ — price has risen ABOVE the recent local low (swing low)
-        # Meaning: price bottomed, is now bouncing back up toward resistance — that IS a pullback
-        # IN_TREND  — price is still AT or BELOW the recent swing low (still falling)
+        # ── PULLBACK ▼ — price bounced above recent swing low ────────────────
         swing_low = sw.get("swing_low") or ll
         if swing_low is not None and price > swing_low:
             res_desc = f" · resistance {choch_resistance:.4f}" if choch_resistance else ""
-            return {"state": "PULLBACK", "trend": trend,
+            return {"state": "PULLBACK", "trend": "DOWNTREND",
                     "bos_level": None, "choch_level": None,
                     "description": f"Pullback ▼ {price:.4f} above trough {swing_low:.4f} · TSI {tsi_now:+.3f}{res_desc}"}
 
         desc = f"Downtrend: LH {lh or '—'} · LL {ll or '—'}"
         if hh: desc += f" · HH {hh}"
-        return {"state": "IN_TREND", "trend": trend,
+        return {"state": "IN_TREND", "trend": "DOWNTREND",
                 "bos_level": None, "choch_level": None, "description": desc}
 
 
