@@ -247,7 +247,7 @@ export function CandleChart({
       ctx.fillText("TSI(55) · Pearson r", 4, TSI_TOP + 11);
 
       // Threshold lines
-      const thresholds = [0.7, 0, -0.7];
+      const thresholds = [0.6, 0, -0.6];
       for (const t of thresholds) {
         const y = mapY(t, -1, 1, TSI_TOP, TSI_H);
         ctx.strokeStyle = t === 0 ? C.axis : "rgba(255,255,255,0.15)";

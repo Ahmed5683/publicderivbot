@@ -34,8 +34,8 @@ SYMBOL_CONFIG = {
 FRACTAL_PERIOD      = 36
 CHOCH_SWING_PERIOD  = 5     # shorter period for real-time CHoCH level detection
 TSI_PERIOD          = 55
-TSI_OVERSOLD        = -0.7
-TSI_OVERBOUGHT      =  0.7
+TSI_OVERSOLD        = -0.6
+TSI_OVERBOUGHT      =  0.6
 CACHE_TTL           = 60
 TRADE_COOLDOWN_SECS = 300   # 5 minutes per symbol
 
@@ -462,7 +462,9 @@ async def _trigger_trade_if_confirmed(sym: Dict) -> None:
     """
     Fire a trade when ALL three conditions are met:
       1. state == PULLBACK
-      2. TSI oversold (< −0.7) for UPTREND  OR  overbought (> +0.7) for DOWNTREND
+      2. TSI slope opposes the trend AND value crosses threshold (≤ −0.6 uptrend / ≥ +0.6 downtrend)
+         - UPTREND  pullback: TSI sloping DOWN (momentum falling) AND tsi_val ≤ −0.6
+         - DOWNTREND pullback: TSI sloping UP   (momentum rising)  AND tsi_val ≥ +0.6
       3. MACD line × Signal line crossover on the last bar (histogram flips sign)
     """
     global _trade_log, _trade_cooldown
@@ -474,16 +476,22 @@ async def _trigger_trade_if_confirmed(sym: Dict) -> None:
     tsi   = sym.get("tsi") or {}
     macd  = sym.get("macd") or {}
 
-    tsi_val      = tsi.get("value", 0.0)
-    hist_vals    = macd.get("histogram_values", [])
-    crossover    = _macd_crossover(hist_vals)
-    symbol       = sym["symbol"]
+    tsi_val    = tsi.get("value", 0.0)
+    tsi_series = tsi.get("values", [])
+    hist_vals  = macd.get("histogram_values", [])
+    crossover  = _macd_crossover(hist_vals)
+    symbol     = sym["symbol"]
 
-    # Condition 2 — TSI extreme
-    if trend == "UPTREND"   and tsi_val >= TSI_OVERSOLD:
-        return
-    if trend == "DOWNTREND" and tsi_val <= TSI_OVERBOUGHT:
-        return
+    # Condition 2 — TSI slope in pullback direction + value beyond threshold
+    tsi_slope = (tsi_series[-1] - tsi_series[-2]) if len(tsi_series) >= 2 else 0.0
+    if trend == "UPTREND":
+        # Pullback: TSI must be sloping DOWN (opposing uptrend) and deep enough
+        if tsi_val >= TSI_OVERSOLD or tsi_slope >= 0:
+            return
+    if trend == "DOWNTREND":
+        # Pullback: TSI must be sloping UP (opposing downtrend) and high enough
+        if tsi_val <= TSI_OVERBOUGHT or tsi_slope <= 0:
+            return
 
     # Condition 3 — MACD × Signal crossover in trend direction
     if trend == "UPTREND"   and crossover != "bullish":
