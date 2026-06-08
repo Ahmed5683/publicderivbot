@@ -465,11 +465,9 @@ async def _trigger_trade_if_confirmed(sym: Dict) -> None:
     """
     Fire a trade when ALL three conditions are met:
       1. state == PULLBACK
-      2. TSI two-level check:
-         - TSI must have HIT the arm level (≤ −0.8 uptrend / ≥ +0.8 downtrend)
-           within the last TSI_EXTREME_LOOKBACK bars — confirms a real deep pullback
-         - TSI must still be beyond the invalidation level (≤ −0.6 uptrend / ≥ +0.6 downtrend)
-           — if TSI crossed back through ±0.6, the pullback is over and signal is dead
+      2. TSI currently AT extreme: ≤ −0.8 (uptrend) / ≥ +0.8 (downtrend)
+         ±0.6 is the pullback validity window — if TSI crosses back through
+         ±0.6 without reaching ±0.8, the pullback is expired and no trade fires.
       3. MACD line × Signal line crossover in trend direction
     """
     global _trade_log, _trade_cooldown
@@ -487,18 +485,13 @@ async def _trigger_trade_if_confirmed(sym: Dict) -> None:
     crossover  = _macd_crossover(hist_vals)
     symbol     = sym["symbol"]
 
-    # Condition 2 — TSI two-level pullback check
-    recent = tsi_series[-TSI_EXTREME_LOOKBACK:] if tsi_series else []
-    if trend == "UPTREND":
-        armed   = any(v <= TSI_OVERSOLD for v in recent)   # hit −0.8
-        valid   = tsi_val <= TSI_INVALID_UP                # still below −0.6
-        if not armed or not valid:
-            return
-    if trend == "DOWNTREND":
-        armed   = any(v >= TSI_OVERBOUGHT for v in recent) # hit +0.8
-        valid   = tsi_val >= TSI_INVALID_DOWN              # still above +0.6
-        if not armed or not valid:
-            return
+    # Condition 2 — TSI must currently be at the extreme (arm level)
+    # ±0.6 is the pullback validity window: if TSI crossed back through ±0.6
+    # without ever reaching ±0.8, the pullback is expired — no trade.
+    if trend == "UPTREND"   and tsi_val > TSI_OVERSOLD:    # must be ≤ −0.8 right now
+        return
+    if trend == "DOWNTREND" and tsi_val < TSI_OVERBOUGHT:  # must be ≥ +0.8 right now
+        return
 
     # Condition 3 — MACD × Signal crossover in trend direction
     if trend == "UPTREND"   and crossover != "bullish":

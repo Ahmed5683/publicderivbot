@@ -246,19 +246,25 @@ export function CandleChart({
       ctx.fillStyle = C.textBrt; ctx.font = "bold 9px monospace"; ctx.textAlign = "left";
       ctx.fillText("TSI(55) · Pearson r", 4, TSI_TOP + 11);
 
-      // Threshold lines
-      const thresholds = [0.6, 0, -0.6];
-      for (const t of thresholds) {
-        const y = mapY(t, -1, 1, TSI_TOP, TSI_H);
-        ctx.strokeStyle = t === 0 ? C.axis : "rgba(255,255,255,0.15)";
-        ctx.lineWidth   = 1;
-        ctx.setLineDash(t === 0 ? [] : [3, 3]);
+      // Threshold lines: ±0.8 = trade entry (brighter), ±0.6 = validity window (dimmer)
+      const thresholds: Array<{ v: number; label: string; alpha: string; dash: number[] }> = [
+        { v:  0.8, label: "+0.8", alpha: "55", dash: [4, 3] },
+        { v:  0.6, label: "+0.6", alpha: "30", dash: [2, 4] },
+        { v:  0,   label: "",     alpha: "",   dash: [] },
+        { v: -0.6, label: "-0.6", alpha: "30", dash: [2, 4] },
+        { v: -0.8, label: "-0.8", alpha: "55", dash: [4, 3] },
+      ];
+      for (const { v, label, alpha, dash } of thresholds) {
+        const y = mapY(v, -1, 1, TSI_TOP, TSI_H);
+        ctx.strokeStyle = v === 0 ? C.axis : (v > 0 ? `#ef4444${alpha}` : `#22c55e${alpha}`);
+        ctx.lineWidth   = v === 0 ? 1 : (Math.abs(v) === 0.8 ? 1.2 : 0.8);
+        ctx.setLineDash(dash);
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(chartW, y); ctx.stroke();
         ctx.setLineDash([]);
-        if (t !== 0) {
-          ctx.fillStyle = t > 0 ? C.bear : C.bull;
+        if (label) {
+          ctx.fillStyle = v > 0 ? C.bear : C.bull;
           ctx.font      = "9px monospace"; ctx.textAlign = "left";
-          ctx.fillText((t > 0 ? "+" : "") + t.toFixed(1), chartW + 4, y + 3);
+          ctx.fillText(label, chartW + 4, y + 3);
         }
       }
 
