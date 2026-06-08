@@ -34,8 +34,11 @@ SYMBOL_CONFIG = {
 FRACTAL_PERIOD      = 36
 CHOCH_SWING_PERIOD  = 5     # shorter period for real-time CHoCH level detection
 TSI_PERIOD          = 55
-TSI_OVERSOLD        = -0.6
-TSI_OVERBOUGHT      =  0.6
+TSI_OVERSOLD        = -0.8   # arm level — TSI must hit this during pullback
+TSI_OVERBOUGHT      =  0.8   # arm level — TSI must hit this during pullback
+TSI_INVALID_UP      = -0.6   # uptrend pullback invalid once TSI crosses back above this
+TSI_INVALID_DOWN    =  0.6   # downtrend pullback invalid once TSI crosses back below this
+TSI_EXTREME_LOOKBACK = 20    # bars to look back for extreme touch
 CACHE_TTL           = 60
 TRADE_COOLDOWN_SECS = 300   # 5 minutes per symbol
 
@@ -462,10 +465,12 @@ async def _trigger_trade_if_confirmed(sym: Dict) -> None:
     """
     Fire a trade when ALL three conditions are met:
       1. state == PULLBACK
-      2. TSI slope opposes the trend AND value crosses threshold (≤ −0.6 uptrend / ≥ +0.6 downtrend)
-         - UPTREND  pullback: TSI sloping DOWN (momentum falling) AND tsi_val ≤ −0.6
-         - DOWNTREND pullback: TSI sloping UP   (momentum rising)  AND tsi_val ≥ +0.6
-      3. MACD line × Signal line crossover on the last bar (histogram flips sign)
+      2. TSI two-level check:
+         - TSI must have HIT the arm level (≤ −0.8 uptrend / ≥ +0.8 downtrend)
+           within the last TSI_EXTREME_LOOKBACK bars — confirms a real deep pullback
+         - TSI must still be beyond the invalidation level (≤ −0.6 uptrend / ≥ +0.6 downtrend)
+           — if TSI crossed back through ±0.6, the pullback is over and signal is dead
+      3. MACD line × Signal line crossover in trend direction
     """
     global _trade_log, _trade_cooldown
 
@@ -482,15 +487,17 @@ async def _trigger_trade_if_confirmed(sym: Dict) -> None:
     crossover  = _macd_crossover(hist_vals)
     symbol     = sym["symbol"]
 
-    # Condition 2 — TSI slope in pullback direction + value beyond threshold
-    tsi_slope = (tsi_series[-1] - tsi_series[-2]) if len(tsi_series) >= 2 else 0.0
+    # Condition 2 — TSI two-level pullback check
+    recent = tsi_series[-TSI_EXTREME_LOOKBACK:] if tsi_series else []
     if trend == "UPTREND":
-        # Pullback: TSI must be sloping DOWN (opposing uptrend) and deep enough
-        if tsi_val >= TSI_OVERSOLD or tsi_slope >= 0:
+        armed   = any(v <= TSI_OVERSOLD for v in recent)   # hit −0.8
+        valid   = tsi_val <= TSI_INVALID_UP                # still below −0.6
+        if not armed or not valid:
             return
     if trend == "DOWNTREND":
-        # Pullback: TSI must be sloping UP (opposing downtrend) and high enough
-        if tsi_val <= TSI_OVERBOUGHT or tsi_slope <= 0:
+        armed   = any(v >= TSI_OVERBOUGHT for v in recent) # hit +0.8
+        valid   = tsi_val >= TSI_INVALID_DOWN              # still above +0.6
+        if not armed or not valid:
             return
 
     # Condition 3 — MACD × Signal crossover in trend direction
