@@ -43,8 +43,8 @@ SYMBOL_CONFIG = {
     "JD100":   {"multiplier": 10,  "name": "Jump 100"},
 }
 
-FRACTAL_PERIOD      = 25
-CHOCH_SWING_PERIOD  = 5     # shorter period for real-time CHoCH level detection
+FRACTAL_PERIOD      = 2      # Bill Williams standard: 5-bar fractal (2 bars each side)
+CHOCH_SWING_PERIOD  = 2     # match fractal period for consistent CHoCH detection
 TSI_PERIOD          = 55
 TSI_OVERSOLD        = -0.7   # arm level — TSI must hit this during pullback
 TSI_OVERBOUGHT      =  0.7   # arm level — TSI must hit this during pullback
