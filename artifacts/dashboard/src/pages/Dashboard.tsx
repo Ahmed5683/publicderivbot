@@ -182,7 +182,7 @@ export default function Dashboard() {
         {/* Symbol table */}
         <div className="rounded-lg border border-border overflow-hidden">
           <div className="px-4 py-3 border-b border-border bg-card flex items-center justify-between">
-            <span className="text-sm font-mono font-semibold">MARKET STATE · 13 SYMBOLS</span>
+            <span className="text-sm font-mono font-semibold">MARKET STATE · {symbols.length > 0 ? `${symbols.length} SYMBOLS` : "SYMBOLS"}</span>
             <span className="text-xs font-mono text-muted-foreground">
               {symbols.length > 0 ? `${symbols.length} scanned` : isLoading ? "Scanning first run (~60s)…" : ""}
             </span>
