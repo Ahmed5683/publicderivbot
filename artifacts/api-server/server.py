@@ -309,13 +309,10 @@ async def analyze_symbol(api: DerivAPI, symbol: str, config: Dict) -> Optional[D
         state_info = detect_state(price, classified, tsi["values"], structural_swing)
         trend      = state_info["trend"]
 
-        filtered   = filter_by_trend(classified, trend)  # only trend-consistent fractals (for state logic)
-
-        # S/R levels: use ALL fractals so recently-formed fractals always show up
-        all_resistance = [f for f in classified if f["type"] in ("HH", "LH")]
-        all_support    = [f for f in classified if f["type"] in ("HL", "LL")]
-        resistance = all_resistance[-1]["price"] if all_resistance else None
-        support    = all_support[-1]["price"]    if all_support    else None
+        filtered   = filter_by_trend(classified, trend)  # only trend-consistent fractals
+        levels     = get_key_levels(filtered)
+        support    = levels["HL"] if trend == "UPTREND" else levels["LL"]
+        resistance = levels["HH"] if trend == "UPTREND" else levels["LH"]
 
         volatility = round(
             ((max(highs[-20:]) - min(lows[-20:])) / min(lows[-20:])) * 100, 1
