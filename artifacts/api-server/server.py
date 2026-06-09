@@ -29,6 +29,18 @@ SYMBOL_CONFIG = {
     "1HZ90V":  {"multiplier": 45,  "name": "Volatility 90"},
     "1HZ100V": {"multiplier": 40,  "name": "Volatility 100"},
     "R_100":   {"multiplier": 40,  "name": "R_100"},
+    # Step indices
+    "STPRNG":  {"multiplier": 750, "name": "Step Index"},
+    "STPRNG2": {"multiplier": 400, "name": "Step Index 2"},
+    "STPRNG3": {"multiplier": 300, "name": "Step Index 3"},
+    "STPRNG4": {"multiplier": 200, "name": "Step Index 4"},
+    "STPRNG5": {"multiplier": 100, "name": "Step Index 5"},
+    # Jump indices
+    "JD10":    {"multiplier": 100, "name": "Jump 10"},
+    "JD25":    {"multiplier": 50,  "name": "Jump 25"},
+    "JD50":    {"multiplier": 20,  "name": "Jump 50"},
+    "JD75":    {"multiplier": 15,  "name": "Jump 75"},
+    "JD100":   {"multiplier": 10,  "name": "Jump 100"},
 }
 
 FRACTAL_PERIOD      = 25
