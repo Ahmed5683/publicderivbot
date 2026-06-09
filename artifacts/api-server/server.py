@@ -31,7 +31,7 @@ SYMBOL_CONFIG = {
     "R_100":   {"multiplier": 40,  "name": "R_100"},
 }
 
-FRACTAL_PERIOD      = 36
+FRACTAL_PERIOD      = 25
 CHOCH_SWING_PERIOD  = 5     # shorter period for real-time CHoCH level detection
 TSI_PERIOD          = 55
 TSI_OVERSOLD        = -0.8   # arm level — TSI must hit this during pullback
