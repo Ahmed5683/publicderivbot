@@ -143,7 +143,7 @@ export default function Dashboard() {
             DERIV MARKET SCANNER
           </h1>
           <p className="text-xs text-muted-foreground font-mono mt-0.5">
-            Fractals(36) · TSI Pearson r(55) · MACD(21,55,21) · 500 candles · Auto-trading active
+            SwingTrend · TSI Pearson r(55) · MACD(21,55,21) · 1000 candles · Auto-trading active
           </p>
         </div>
 
@@ -206,7 +206,7 @@ export default function Dashboard() {
                     <th className="text-center px-4 py-3">TSI(r)</th>
                     <th className="text-center px-4 py-3">TSI Δ</th>
                     <th className="text-right px-4 py-3">MACD Hist</th>
-                    <th className="text-right px-4 py-3">Frac</th>
+                    <th className="text-right px-4 py-3">Legs</th>
                     <th className="text-left px-4 py-3">S / R</th>
                   </tr>
                 </thead>
@@ -257,7 +257,7 @@ export default function Dashboard() {
                           ) : "—"}
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                          {sym.fractal_count}
+                          {(sym as any).leg_count ?? "—"}
                         </td>
                         <td className="px-4 py-3 text-left text-xs">
                           {sym.support && sym.resistance ? (
@@ -419,7 +419,7 @@ export default function Dashboard() {
         )}
 
         <div className="text-xs font-mono text-muted-foreground border-t border-border pt-4">
-          TSI = Pearson r (−1 to +1) · Oversold &lt; −0.7 · Overbought &gt; +0.7 · Fractals period=36 ·
+          TSI = Pearson r (−1 to +1) · Oversold &lt; −0.7 · Overbought &gt; +0.7 · SwingTrend SPH/SPL/CoC ·
           BOS = close above HH or below LL · CHoCH = close above swing high or below swing low ·
           Trade = PULLBACK + TSI extreme + MACD × Signal crossover · SL $0.50 · TP $1.00
         </div>
