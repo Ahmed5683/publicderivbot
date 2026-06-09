@@ -246,12 +246,12 @@ export function CandleChart({
       ctx.fillStyle = C.textBrt; ctx.font = "bold 9px monospace"; ctx.textAlign = "left";
       ctx.fillText("TSI(55) · Pearson r", 4, TSI_TOP + 11);
 
-      // Threshold lines: ±0.7 = trade entry (brighter), ±0.5 = validity window (dimmer)
+      // Threshold lines: ±0.7 = trade entry (brighter), ±0.6 = validity window (dimmer)
       const thresholds: Array<{ v: number; label: string; alpha: string; dash: number[] }> = [
         { v:  0.7, label: "+0.7", alpha: "55", dash: [4, 3] },
-        { v:  0.5, label: "+0.5", alpha: "30", dash: [2, 4] },
+        { v:  0.6, label: "+0.6", alpha: "30", dash: [2, 4] },
         { v:  0,   label: "",     alpha: "",   dash: [] },
-        { v: -0.5, label: "-0.5", alpha: "30", dash: [2, 4] },
+        { v: -0.6, label: "-0.6", alpha: "30", dash: [2, 4] },
         { v: -0.7, label: "-0.7", alpha: "55", dash: [4, 3] },
       ];
       for (const { v, label, alpha, dash } of thresholds) {

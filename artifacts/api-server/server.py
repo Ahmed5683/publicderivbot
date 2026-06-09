@@ -36,8 +36,8 @@ CHOCH_SWING_PERIOD  = 5     # shorter period for real-time CHoCH level detection
 TSI_PERIOD          = 55
 TSI_OVERSOLD        = -0.7   # arm level — TSI must hit this during pullback
 TSI_OVERBOUGHT      =  0.7   # arm level — TSI must hit this during pullback
-TSI_INVALID_UP      = -0.5   # uptrend pullback invalid once TSI crosses back above this
-TSI_INVALID_DOWN    =  0.5   # downtrend pullback invalid once TSI crosses back below this
+TSI_INVALID_UP      = -0.6   # uptrend pullback invalid once TSI crosses back above this
+TSI_INVALID_DOWN    =  0.6   # downtrend pullback invalid once TSI crosses back below this
 TSI_EXTREME_LOOKBACK = 20    # bars to look back for extreme touch
 CACHE_TTL           = 60
 TRADE_COOLDOWN_SECS = 300   # 5 minutes per symbol
@@ -472,9 +472,9 @@ async def _trigger_trade_if_confirmed(sym: Dict) -> None:
     """
     Fire a trade when ALL three conditions are met:
       1. state == PULLBACK
-      2. TSI currently AT extreme: ≤ −0.8 (uptrend) / ≥ +0.8 (downtrend)
+      2. TSI currently AT extreme: ≤ −0.7 (uptrend) / ≥ +0.7 (downtrend)
          ±0.6 is the pullback validity window — if TSI crosses back through
-         ±0.6 without reaching ±0.8, the pullback is expired and no trade fires.
+         ±0.6 without reaching ±0.7, the pullback is expired and no trade fires.
       3. MACD line × Signal line crossover in trend direction
     """
     global _trade_log, _trade_cooldown
@@ -492,13 +492,18 @@ async def _trigger_trade_if_confirmed(sym: Dict) -> None:
     crossover  = _macd_crossover(hist_vals)
     symbol     = sym["symbol"]
 
-    # Condition 2 — TSI must currently be at the extreme (arm level)
-    # ±0.6 is the pullback validity window: if TSI crossed back through ±0.6
-    # without ever reaching ±0.8, the pullback is expired — no trade.
-    if trend == "UPTREND"   and tsi_val > TSI_OVERSOLD:    # must be ≤ −0.8 right now
-        return
-    if trend == "DOWNTREND" and tsi_val < TSI_OVERBOUGHT:  # must be ≥ +0.8 right now
-        return
+    # Condition 2 — TSI two-level pullback check
+    # ±0.7 = trade entry (must be AT this level to fire)
+    # ±0.6 = validity window (if TSI crosses back through ±0.6 without reaching ±0.7, pullback is dead)
+    recent = tsi_series[-TSI_EXTREME_LOOKBACK:] if tsi_series else []
+    if trend == "UPTREND":
+        armed = any(v <= TSI_OVERSOLD for v in recent)   # hit −0.7 within lookback
+        if tsi_val > TSI_OVERSOLD or not armed:          # not at −0.7 now OR never armed
+            return
+    if trend == "DOWNTREND":
+        armed = any(v >= TSI_OVERBOUGHT for v in recent) # hit +0.7 within lookback
+        if tsi_val < TSI_OVERBOUGHT or not armed:        # not at +0.7 now OR never armed
+            return
 
     # Condition 3 — MACD × Signal crossover in trend direction
     if trend == "UPTREND"   and crossover != "bullish":
