@@ -28,13 +28,13 @@ args = "Start application"
 name = "API Server"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd artifacts/api-server && PORT=3001 pnpm run dev"
-waitForPort = 3001
-
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd artifacts/api-server && PORT=8080 python server.py"
+waitForPort = 8080
 
 [[workflows.workflow]]
 name = "Start application"
