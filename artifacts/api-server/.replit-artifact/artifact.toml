@@ -13,14 +13,10 @@ paths = ["/api"]
 run = "python server.py"
 
 [services.production]
+build = ["pip", "install", "-r", "artifacts/api-server/requirements.txt"]
+run = ["python", "artifacts/api-server/server.py"]
 
-[services.production.build]
-args = ["echo", "no build needed"]
-
-[services.production.run]
-args = ["python", "artifacts/api-server/server.py"]
-
-[services.production.run.env]
+[services.production.env]
 PORT = "8080"
 
 [services.production.health.startup]

@@ -1,16 +1,40 @@
 ---
 name: Deriv API authentication
-description: How Deriv API tokens work — PAT tokens vs old-style tokens, and what needs auth
+description: How Deriv API tokens work — new PAT (pat_...) tokens vs legacy, trading flow, and deployment notes
 ---
 
 ## Rule
-Market data (ticks_history/candles) on `wss://ws.derivws.com/websockets/v3` is PUBLIC — no `authorize` call needed.
-PAT tokens (`pat_...`) are for the NEW Deriv API (OAuth2, developers.deriv.com) and are REJECTED by the old WebSocket API.
-The old `python-deriv-api` library always calls `authorize` first — use raw `websockets` instead for the data layer.
+Market data (ticks_history/candles) on `wss://ws.derivws.com/websockets/v3?app_id=1089` is PUBLIC — no `authorize` call needed. Use app_id=1089 for all public market data requests.
 
-**Why:** Deriv is migrating to a new OAuth2-based API. The `pat_` prefix Personal Access Tokens only work with the new platform, not the legacy WebSocket API at `ws.derivws.com`. The old `api.deriv.com` now redirects to `legacy-api.deriv.com`. Market data remains public on the legacy endpoint.
+PAT tokens (`pat_...`) are for the NEW Deriv API only (developers.deriv.com). They are REJECTED by the old WebSocket `authorize` flow.
 
-**How to apply:**
-- For candle/tick fetching: connect to `wss://ws.derivws.com/websockets/v3?app_id=104094`, send `ticks_history` directly, NO `authorize`.
-- For trading (buy/sell): still needs auth — but PAT tokens will fail with `InvalidToken`. User needs a legacy Deriv API token (old format) for trading to work.
-- The current server.py uses raw `websockets` library (not `python-deriv-api`) and skips auth for data fetching. Trading auth is attempted but will fail gracefully.
+**Why:** Deriv migrated to a new OAuth2-based API. `pat_` prefix tokens work exclusively with the new platform at `api.derivws.com`. The old `ws.derivws.com` `authorize` message will return `InvalidToken` for PAT tokens.
+
+## New API Trading Flow (PAT tokens)
+1. **REST — get accounts:** `GET https://api.derivws.com/trading/v1/options/accounts` with headers `Authorization: Bearer <pat_token>` and `Deriv-App-ID: <app_id>` — both headers required or returns 401.
+2. **REST — get OTP WS URL:** `POST https://api.derivws.com/trading/v1/options/accounts/{accountId}/otp` with same headers — returns `data.url` (e.g. `wss://api.derivws.com/trading/v1/options/ws/demo?otp=...`)
+3. **WebSocket — trade:** Connect to the OTP URL, send proposal/buy using NEW field names.
+
+## New WebSocket Message Format (DIFFERENT from legacy)
+```json
+{
+  "proposal": 1, "amount": 1, "basis": "stake",
+  "contract_type": "MULTUP", "currency": "USD",
+  "duration_unit": "s", "multiplier": 40,
+  "underlying_symbol": "1HZ100V",
+  "limit_order": {"stop_loss": 0.50, "take_profit": 1.00},
+  "req_id": 1
+}
+```
+Key differences from legacy: `underlying_symbol` (not `symbol`), `duration_unit` is required.
+
+## App ID Requirement
+- Legacy App IDs (e.g. 104094) do NOT work with the new API.
+- App ID must be registered at developers.deriv.com for PAT auth.
+- Both `Authorization` header AND `Deriv-App-ID` header are required for every REST call.
+
+## Wallet Accounts Cannot Trade
+Account types `CRW` (Wallet) and `VRW` (Virtual Wallet) cannot trade via API. Must use a standard `VRTC` (Virtual) or `CR` (Real) account.
+
+## Deployment Note
+Trading bots using this app MUST use `vm` (Always On) deployment — not `autoscale`. Autoscale sleeps between requests and misses trade signals. The background scanner uses `@app.on_event("startup")` with `asyncio.create_task` to run analysis every 60s independently of HTTP traffic.

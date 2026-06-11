@@ -702,5 +702,27 @@ async def trading_status():
 
 app.include_router(router)
 
+
+@app.on_event("startup")
+async def start_background_scanner():
+    """Run market analysis + auto-trading every 60 seconds in the background,
+    regardless of whether anyone is hitting the API."""
+    async def _loop():
+        print("[SCANNER] Background scanner started — will run every 60 seconds")
+        while True:
+            try:
+                data = await run_full_analysis()
+                global _analysis_cache, _analysis_cache_time
+                _analysis_cache      = data
+                _analysis_cache_time = time.time()
+                pb = data.get("pullback_count", 0)
+                print(f"[SCANNER] Scan complete — {len(data.get('symbols', []))} symbols | {pb} pullback(s)")
+            except Exception as e:
+                print(f"[SCANNER] Error during scan: {e}")
+            await asyncio.sleep(60)
+
+    asyncio.create_task(_loop())
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=PORT)
