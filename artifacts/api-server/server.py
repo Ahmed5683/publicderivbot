@@ -2,18 +2,20 @@ import asyncio
 import os
 import time
 import math
+import json
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRouter
 from pydantic import BaseModel
-from deriv_api import DerivAPI
+import websockets
 import uvicorn
 
 APP_ID = os.getenv("DERIV_APP_ID", "104094")
 TOKEN  = os.getenv("DERIV_TOKEN", "pat_a646d33aff915ac93cd35e46cee0ca7e294109f36bfac462c49701dcccf81b6f")
 PORT   = int(os.getenv("PORT", "8080"))
+WS_URL = f"wss://ws.derivws.com/websockets/v3?app_id={APP_ID}"
 
 SYMBOL_CONFIG = {
     "1HZ10V":  {"multiplier": 400, "name": "Volatility 10"},
@@ -29,13 +31,11 @@ SYMBOL_CONFIG = {
     "1HZ90V":  {"multiplier": 45,  "name": "Volatility 90"},
     "1HZ100V": {"multiplier": 40,  "name": "Volatility 100"},
     "R_100":   {"multiplier": 40,  "name": "R_100"},
-    # Step indices
     "STPRNG":  {"multiplier": 750, "name": "Step Index"},
     "STPRNG2": {"multiplier": 400, "name": "Step Index 2"},
     "STPRNG3": {"multiplier": 300, "name": "Step Index 3"},
     "STPRNG4": {"multiplier": 200, "name": "Step Index 4"},
     "STPRNG5": {"multiplier": 100, "name": "Step Index 5"},
-    # Jump indices
     "JD10":    {"multiplier": 100, "name": "Jump 10"},
     "JD25":    {"multiplier": 50,  "name": "Jump 25"},
     "JD50":    {"multiplier": 20,  "name": "Jump 50"},
@@ -43,25 +43,48 @@ SYMBOL_CONFIG = {
     "JD100":   {"multiplier": 10,  "name": "Jump 100"},
 }
 
-FRACTAL_PERIOD      = 25     # 25 bars each side
-CHOCH_SWING_PERIOD  = 5     # shorter period for real-time CHoCH level detection
-TSI_PERIOD          = 55
-TSI_OVERSOLD        = -0.7   # arm level — TSI must hit this during pullback
-TSI_OVERBOUGHT      =  0.7   # arm level — TSI must hit this during pullback
-TSI_INVALID_UP      = -0.6   # uptrend pullback invalid once TSI crosses back above this
-TSI_INVALID_DOWN    =  0.6   # downtrend pullback invalid once TSI crosses back below this
-TSI_EXTREME_LOOKBACK = 20    # bars to look back for extreme touch
-CACHE_TTL           = 60
-TRADE_COOLDOWN_SECS = 300   # 5 minutes per symbol
+FRACTAL_PERIOD       = 25
+CHOCH_SWING_PERIOD   = 5
+TSI_PERIOD           = 55
+TSI_OVERSOLD         = -0.7
+TSI_OVERBOUGHT       =  0.7
+TSI_EXTREME_LOOKBACK = 20
+CACHE_TTL            = 60
+TRADE_COOLDOWN_SECS  = 300
 
 _analysis_cache:      Optional[Dict] = None
 _analysis_cache_time: float = 0
 _chart_cache:         Dict[str, Dict]  = {}
 _chart_cache_time:    Dict[str, float] = {}
+_trade_log:      List[Dict] = []
+_trade_cooldown: Dict[str, float] = {}
 
-# ── Trading state ─────────────────────────────────
-_trade_log:      List[Dict] = []          # capped at 50
-_trade_cooldown: Dict[str, float] = {}    # symbol → last trade epoch
+
+# ──────────────────────────────────────────────────
+# WebSocket helpers (no auth needed for market data)
+# ──────────────────────────────────────────────────
+
+async def ws_send_recv(ws, payload: Dict, timeout: float = 15.0) -> Dict:
+    """Send a single request on an open WebSocket and return the response."""
+    await ws.send(json.dumps(payload))
+    resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=timeout))
+    if resp.get("error"):
+        raise RuntimeError(resp["error"].get("message", "Unknown error"))
+    return resp
+
+
+async def fetch_candles_ws(symbol: str, count: int) -> List[Dict]:
+    """Fetch OHLC candles without any authorisation — market data is public."""
+    async with websockets.connect(WS_URL, open_timeout=15) as ws:
+        resp = await ws_send_recv(ws, {
+            "ticks_history": symbol,
+            "adjust_start_time": 1,
+            "count": count,
+            "end": "latest",
+            "granularity": 60,
+            "style": "candles",
+        })
+    return resp.get("candles", [])
 
 
 # ──────────────────────────────────────────────────
@@ -157,10 +180,6 @@ def get_key_levels(classified: List[Dict]) -> Dict[str, Optional[float]]:
 
 def get_structural_swing(highs: List[float], lows: List[float],
                          period: int = CHOCH_SWING_PERIOD) -> Dict[str, Optional[float]]:
-    """
-    Detect the most recent swing high and swing low using a short look-back/look-ahead.
-    Used for CHoCH detection so we don't wait for the full FRACTAL_PERIOD confirmation.
-    """
     n = len(highs)
     last_swing_high: Optional[float] = None
     last_swing_low:  Optional[float] = None
@@ -173,10 +192,6 @@ def get_structural_swing(highs: List[float], lows: List[float],
 
 
 def filter_by_trend(classified: List[Dict], trend: str) -> List[Dict]:
-    """Keep only fractals that belong to the current trend direction.
-    UPTREND  → HH + HL only  (no LH / LL)
-    DOWNTREND → LH + LL only  (no HH / HL)
-    """
     keep = ("HH", "HL") if trend == "UPTREND" else ("LH", "LL")
     return [f for f in classified if f["type"] in keep]
 
@@ -204,7 +219,6 @@ def get_trend(classified: List[Dict]) -> str:
 # State detection
 # ──────────────────────────────────────────────────
 
-
 def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
                  structural_swing: Optional[Dict] = None) -> Dict[str, Any]:
     if not classified:
@@ -213,27 +227,24 @@ def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
                 "description": "No fractal structure yet"}
 
     trend    = get_trend(classified)
-    filtered = filter_by_trend(classified, trend)   # UPTREND→HH/HL only · DOWNTREND→LH/LL only
+    filtered = filter_by_trend(classified, trend)
     levels   = get_key_levels(filtered)
     hh, hl, lh, ll = levels["HH"], levels["HL"], levels["LH"], levels["LL"]
     tsi_now  = tsi_values[-1] if tsi_values else 0.0
     sw       = structural_swing or {}
 
     if trend == "UPTREND":
-        # ── BOS ▲ — price breaks above HH → uptrend continuation ────────────
         if hh is not None and price > hh:
             return {"state": "BOS_CONTINUATION", "trend": "UPTREND",
                     "bos_level": hh, "choch_level": None,
                     "description": f"BOS ▲ Broke HH {hh:.4f} · Price {price:.4f} (+{(price-hh)/hh*100:.2f}%) · Uptrend continuation"}
 
-        # ── CHoCH ▼ — price breaks below confirmed HL → trend reversal ───────
         choch_support = hl or sw.get("swing_low")
         if choch_support is not None and price < choch_support:
             return {"state": "CHoCH_REVERSAL", "trend": "DOWNTREND",
                     "bos_level": None, "choch_level": choch_support,
                     "description": f"CHoCH ▼ Broke {choch_support:.4f} · Price {price:.4f} · Uptrend → Downtrend"}
 
-        # ── PULLBACK ▲ — price retreated below recent swing high ─────────────
         swing_high = sw.get("swing_high") or hh
         if swing_high is not None and price < swing_high:
             sup_desc = f" · support {choch_support:.4f}" if choch_support else ""
@@ -245,21 +256,18 @@ def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
                 "bos_level": None, "choch_level": None,
                 "description": f"Uptrend: HH {hh or '—'} · HL {hl or '—'}"}
 
-    else:  # DOWNTREND
-        # ── BOS ▼ — price breaks below LL → downtrend continuation ──────────
+    else:
         if ll is not None and price < ll:
             return {"state": "BOS_CONTINUATION", "trend": "DOWNTREND",
                     "bos_level": ll, "choch_level": None,
                     "description": f"BOS ▼ Broke LL {ll:.4f} · Price {price:.4f} (-{(ll-price)/ll*100:.2f}%) · Downtrend continuation"}
 
-        # ── CHoCH ▲ — price breaks above confirmed LH → trend reversal ───────
         choch_resistance = lh or sw.get("swing_high")
         if choch_resistance is not None and price > choch_resistance:
             return {"state": "CHoCH_REVERSAL", "trend": "UPTREND",
                     "bos_level": None, "choch_level": choch_resistance,
                     "description": f"CHoCH ▲ Broke {choch_resistance:.4f} · Price {price:.4f} · Downtrend → Uptrend"}
 
-        # ── PULLBACK ▼ — price bounced above recent swing low ────────────────
         swing_low = sw.get("swing_low") or ll
         if swing_low is not None and price > swing_low:
             res_desc = f" · resistance {choch_resistance:.4f}" if choch_resistance else ""
@@ -273,24 +281,12 @@ def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
 
 
 # ──────────────────────────────────────────────────
-# Deriv helpers
+# Analysis helpers
 # ──────────────────────────────────────────────────
 
-async def fetch_candles(api: DerivAPI, symbol: str, count: int) -> List[Dict]:
-    resp = await api.ticks_history({
-        "ticks_history": symbol,
-        "adjust_start_time": 1,
-        "count": count,
-        "end": "latest",
-        "granularity": 60,
-        "style": "candles",
-    })
-    return resp.get("candles", [])
-
-
-async def analyze_symbol(api: DerivAPI, symbol: str, config: Dict) -> Optional[Dict]:
+async def analyze_symbol(symbol: str, config: Dict) -> Optional[Dict]:
     try:
-        candles = await fetch_candles(api, symbol, 500)
+        candles = await fetch_candles_ws(symbol, 500)
         if len(candles) < 120:
             return None
 
@@ -299,9 +295,9 @@ async def analyze_symbol(api: DerivAPI, symbol: str, config: Dict) -> Optional[D
         closes = [float(c["close"]) for c in candles]
         price  = closes[-1]
 
-        fractals          = get_fractals(highs, lows, FRACTAL_PERIOD)
-        classified        = classify_fractals(fractals)
-        structural_swing  = get_structural_swing(highs, lows, CHOCH_SWING_PERIOD)
+        fractals         = get_fractals(highs, lows, FRACTAL_PERIOD)
+        classified       = classify_fractals(fractals)
+        structural_swing = get_structural_swing(highs, lows, CHOCH_SWING_PERIOD)
 
         tsi  = calc_tsi(closes, TSI_PERIOD)
         macd = calc_macd(closes, fast=21, slow=55, signal=21)
@@ -309,7 +305,7 @@ async def analyze_symbol(api: DerivAPI, symbol: str, config: Dict) -> Optional[D
         state_info = detect_state(price, classified, tsi["values"], structural_swing)
         trend      = state_info["trend"]
 
-        filtered   = filter_by_trend(classified, trend)  # only trend-consistent fractals
+        filtered   = filter_by_trend(classified, trend)
         levels     = get_key_levels(filtered)
         support    = levels["HL"] if trend == "UPTREND" else levels["LL"]
         resistance = levels["HH"] if trend == "UPTREND" else levels["LH"]
@@ -352,19 +348,17 @@ async def analyze_symbol(api: DerivAPI, symbol: str, config: Dict) -> Optional[D
 
 
 async def run_full_analysis() -> Dict:
-    api = DerivAPI(app_id=APP_ID)
-    await api.authorize(TOKEN)
+    tasks = [
+        analyze_symbol(symbol, config)
+        for symbol, config in SYMBOL_CONFIG.items()
+    ]
+    all_results = await asyncio.gather(*tasks, return_exceptions=True)
 
     results: List[Dict] = []
-    for symbol, config in SYMBOL_CONFIG.items():
-        result = await analyze_symbol(api, symbol, config)
-        if result:
-            results.append(result)
-        await asyncio.sleep(0.2)
+    for r in all_results:
+        if isinstance(r, dict):
+            results.append(r)
 
-    await api.disconnect()
-
-    # Auto-trade: always runs — check each symbol in parallel
     await asyncio.gather(*[_trigger_trade_if_confirmed(r) for r in results])
 
     counts: Dict[str, int] = {
@@ -385,10 +379,7 @@ async def run_full_analysis() -> Dict:
 
 
 async def build_chart_data(symbol: str) -> Dict:
-    api = DerivAPI(app_id=APP_ID)
-    await api.authorize(TOKEN)
-    candles = await fetch_candles(api, symbol, 1000)
-    await api.disconnect()
+    candles = await fetch_candles_ws(symbol, 1000)
 
     highs = [float(c["high"]) for c in candles]
     lows  = [float(c["low"])  for c in candles]
@@ -396,7 +387,7 @@ async def build_chart_data(symbol: str) -> Dict:
     raw_fractals = get_fractals(highs, lows, FRACTAL_PERIOD)
     all_markers  = classify_fractals(raw_fractals)
     trend        = get_trend(all_markers)
-    markers      = filter_by_trend(all_markers, trend)   # only trend-consistent labels
+    markers      = filter_by_trend(all_markers, trend)
     levels       = get_key_levels(markers)
 
     candle_data = [
@@ -423,18 +414,11 @@ async def build_chart_data(symbol: str) -> Dict:
 # ──────────────────────────────────────────────────
 
 def _macd_crossover(histogram_values: List[float], lookback: int = 3) -> Optional[str]:
-    """
-    Returns 'bullish' if MACD crossed above Signal within the last `lookback` bars,
-            'bearish' if MACD crossed below Signal within the last `lookback` bars,
-            None otherwise.
-    Checking a 3-bar window avoids missing the crossover when it falls between scans.
-    """
     if len(histogram_values) < 2:
         return None
     window = histogram_values[-(lookback + 1):]
     for i in range(1, len(window)):
-        prev = window[i - 1]
-        curr = window[i]
+        prev, curr = window[i - 1], window[i]
         if prev < 0 and curr >= 0:
             return "bullish"
         if prev > 0 and curr <= 0:
@@ -443,52 +427,63 @@ def _macd_crossover(histogram_values: List[float], lookback: int = 3) -> Optiona
 
 
 async def _place_multiplier_trade(symbol: str, contract_type: str) -> Dict:
-    """Place MULTUP or MULTDOWN — $1 stake, SL $0.50, TP $1.00."""
+    """Place MULTUP or MULTDOWN — $1 stake, SL $0.50, TP $1.00.
+    Attempts authorize with the PAT token; logs failure gracefully."""
     multiplier = SYMBOL_CONFIG[symbol]["multiplier"]
-    api = DerivAPI(app_id=APP_ID)
     try:
-        await api.authorize(TOKEN)
-        proposal = await api.proposal({
-            "proposal":       1,
-            "amount":         1,
-            "basis":          "stake",
-            "contract_type":  contract_type,
-            "currency":       "USD",
-            "symbol":         symbol,
-            "multiplier":     multiplier,
-        })
-        proposal_id = proposal["proposal"]["id"]
-        ask_price   = proposal["proposal"]["ask_price"]
+        async with websockets.connect(WS_URL, open_timeout=15) as ws:
+            # Attempt authorisation with PAT token
+            await ws.send(json.dumps({"authorize": TOKEN}))
+            auth_resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
+            if auth_resp.get("error"):
+                err_msg = auth_resp["error"].get("message", "auth failed")
+                return {"ok": False, "error": f"Auth failed: {err_msg}",
+                        "contract_type": contract_type, "symbol": symbol}
 
-        buy = await api.buy({"buy": proposal_id, "price": ask_price})
-        contract_id = buy["buy"]["contract_id"]
+            # Get proposal
+            await ws.send(json.dumps({
+                "proposal":      1,
+                "amount":        1,
+                "basis":         "stake",
+                "contract_type": contract_type,
+                "currency":      "USD",
+                "symbol":        symbol,
+                "multiplier":    multiplier,
+            }))
+            prop_resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=15))
+            if prop_resp.get("error"):
+                return {"ok": False, "error": prop_resp["error"].get("message","proposal failed"),
+                        "contract_type": contract_type, "symbol": symbol}
 
-        await api.contract_update({
-            "contract_id": contract_id,
-            "limit_order": {"stop_loss": 0.5, "take_profit": 1.0},
-        })
-        return {"ok": True, "contract_id": contract_id,
-                "contract_type": contract_type, "symbol": symbol,
-                "multiplier": multiplier, "ask_price": ask_price}
+            proposal_id = prop_resp["proposal"]["id"]
+            ask_price   = prop_resp["proposal"]["ask_price"]
+
+            # Buy
+            await ws.send(json.dumps({"buy": proposal_id, "price": ask_price}))
+            buy_resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=15))
+            if buy_resp.get("error"):
+                return {"ok": False, "error": buy_resp["error"].get("message","buy failed"),
+                        "contract_type": contract_type, "symbol": symbol}
+
+            contract_id = buy_resp["buy"]["contract_id"]
+
+            # Set SL/TP
+            await ws.send(json.dumps({
+                "contract_update": 1,
+                "contract_id": contract_id,
+                "limit_order": {"stop_loss": 0.5, "take_profit": 1.0},
+            }))
+            await asyncio.wait_for(ws.recv(), timeout=10)
+
+            return {"ok": True, "contract_id": contract_id,
+                    "contract_type": contract_type, "symbol": symbol,
+                    "multiplier": multiplier, "ask_price": ask_price}
     except Exception as e:
         return {"ok": False, "error": str(e),
                 "contract_type": contract_type, "symbol": symbol}
-    finally:
-        try:
-            await api.disconnect()
-        except Exception:
-            pass
 
 
 async def _trigger_trade_if_confirmed(sym: Dict) -> None:
-    """
-    Fire a trade when ALL three conditions are met:
-      1. state == PULLBACK
-      2. TSI currently AT extreme: ≤ −0.7 (uptrend) / ≥ +0.7 (downtrend)
-         ±0.6 is the pullback validity window — if TSI crosses back through
-         ±0.6 without reaching ±0.7, the pullback is expired and no trade fires.
-      3. MACD line × Signal line crossover in trend direction
-    """
     global _trade_log, _trade_cooldown
 
     if sym["state"] != "PULLBACK":
@@ -504,26 +499,21 @@ async def _trigger_trade_if_confirmed(sym: Dict) -> None:
     crossover  = _macd_crossover(hist_vals)
     symbol     = sym["symbol"]
 
-    # Condition 2 — TSI two-level pullback check
-    # ±0.7 = trade entry (must be AT this level to fire)
-    # ±0.6 = validity window (if TSI crosses back through ±0.6 without reaching ±0.7, pullback is dead)
     recent = tsi_series[-TSI_EXTREME_LOOKBACK:] if tsi_series else []
     if trend == "UPTREND":
-        armed = any(v <= TSI_OVERSOLD for v in recent)   # hit −0.7 within lookback
-        if tsi_val > TSI_OVERSOLD or not armed:          # not at −0.7 now OR never armed
+        armed = any(v <= TSI_OVERSOLD for v in recent)
+        if tsi_val > TSI_OVERSOLD or not armed:
             return
     if trend == "DOWNTREND":
-        armed = any(v >= TSI_OVERBOUGHT for v in recent) # hit +0.7 within lookback
-        if tsi_val < TSI_OVERBOUGHT or not armed:        # not at +0.7 now OR never armed
+        armed = any(v >= TSI_OVERBOUGHT for v in recent)
+        if tsi_val < TSI_OVERBOUGHT or not armed:
             return
 
-    # Condition 3 — MACD × Signal crossover in trend direction
     if trend == "UPTREND"   and crossover != "bullish":
         return
     if trend == "DOWNTREND" and crossover != "bearish":
         return
 
-    # Cooldown check
     now = time.time()
     if now - _trade_cooldown.get(symbol, 0) < TRADE_COOLDOWN_SECS:
         return
@@ -615,8 +605,6 @@ async def get_chart(symbol: str):
             return _chart_cache[symbol]
         raise HTTPException(status_code=500, detail=str(e))
 
-
-# ── Trading endpoints ─────────────────────────────
 
 @router.get("/trading/status")
 async def trading_status():

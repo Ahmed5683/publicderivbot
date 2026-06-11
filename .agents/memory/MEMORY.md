@@ -1,0 +1,1 @@
+- [Deriv API auth](deriv-api-auth.md) — PAT tokens (pat_...) are for new OAuth2 API; market data needs NO auth on old WS endpoint
