@@ -4,13 +4,11 @@ import time
 import math
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRouter
 from pydantic import BaseModel
 from deriv_api import DerivAPI
-from swingtrend import Swing
 import uvicorn
 
 APP_ID = os.getenv("DERIV_APP_ID", "104094")
@@ -31,11 +29,13 @@ SYMBOL_CONFIG = {
     "1HZ90V":  {"multiplier": 45,  "name": "Volatility 90"},
     "1HZ100V": {"multiplier": 40,  "name": "Volatility 100"},
     "R_100":   {"multiplier": 40,  "name": "R_100"},
+    # Step indices
     "STPRNG":  {"multiplier": 750, "name": "Step Index"},
     "STPRNG2": {"multiplier": 400, "name": "Step Index 2"},
     "STPRNG3": {"multiplier": 300, "name": "Step Index 3"},
     "STPRNG4": {"multiplier": 200, "name": "Step Index 4"},
     "STPRNG5": {"multiplier": 100, "name": "Step Index 5"},
+    # Jump indices
     "JD10":    {"multiplier": 100, "name": "Jump 10"},
     "JD25":    {"multiplier": 50,  "name": "Jump 25"},
     "JD50":    {"multiplier": 20,  "name": "Jump 50"},
@@ -43,27 +43,25 @@ SYMBOL_CONFIG = {
     "JD100":   {"multiplier": 10,  "name": "Jump 100"},
 }
 
-# ── SwingTrend settings ────────────────────────────
-RETRACE_THRESHOLD  = 5     # % retracement to confirm a swing leg
-SIDEWAYS_THRESHOLD = 20    # % range threshold → sideways market
-MINIMUM_BAR_COUNT  = 60    # minimum candles needed by swingtrend
-
-# ── TSI settings ───────────────────────────────────
-TSI_PERIOD           = 55
-TSI_OVERSOLD         = -0.7
-TSI_OVERBOUGHT       =  0.7
-TSI_EXTREME_LOOKBACK = 20
-
+FRACTAL_PERIOD      = 25     # 25 bars each side
+CHOCH_SWING_PERIOD  = 5     # shorter period for real-time CHoCH level detection
+TSI_PERIOD          = 55
+TSI_OVERSOLD        = -0.7   # arm level — TSI must hit this during pullback
+TSI_OVERBOUGHT      =  0.7   # arm level — TSI must hit this during pullback
+TSI_INVALID_UP      = -0.6   # uptrend pullback invalid once TSI crosses back above this
+TSI_INVALID_DOWN    =  0.6   # downtrend pullback invalid once TSI crosses back below this
+TSI_EXTREME_LOOKBACK = 20    # bars to look back for extreme touch
 CACHE_TTL           = 60
-TRADE_COOLDOWN_SECS = 300
+TRADE_COOLDOWN_SECS = 300   # 5 minutes per symbol
 
 _analysis_cache:      Optional[Dict] = None
 _analysis_cache_time: float = 0
 _chart_cache:         Dict[str, Dict]  = {}
 _chart_cache_time:    Dict[str, float] = {}
 
-_trade_log:      List[Dict] = []
-_trade_cooldown: Dict[str, float] = {}
+# ── Trading state ─────────────────────────────────
+_trade_log:      List[Dict] = []          # capped at 50
+_trade_cooldown: Dict[str, float] = {}    # symbol → last trade epoch
 
 
 # ──────────────────────────────────────────────────
@@ -123,72 +121,155 @@ def calc_tsi(closes: List[float], period: int = TSI_PERIOD) -> Dict:
 
 
 # ──────────────────────────────────────────────────
-# State detection (SwingTrend-based)
+# Fractals
 # ──────────────────────────────────────────────────
 
-def detect_state_swing(
-    price: float,
-    trend: str,
-    sph: Optional[float],
-    spl: Optional[float],
-    coc: Optional[float],
-    tsi_values: List[float],
-    is_sideways: bool,
-) -> Dict[str, Any]:
-    tsi_now = tsi_values[-1] if tsi_values else 0.0
+def get_fractals(highs: List[float], lows: List[float], period: int = FRACTAL_PERIOD) -> List[Dict]:
+    out: List[Dict] = []
+    n = len(highs)
+    for i in range(period, n - period):
+        if all(highs[i] > highs[i - j] and highs[i] > highs[i + j] for j in range(1, period + 1)):
+            out.append({"type": "RESISTANCE", "index": i, "price": round(highs[i], 4)})
+        if all(lows[i] < lows[i - j] and lows[i] < lows[i + j] for j in range(1, period + 1)):
+            out.append({"type": "SUPPORT", "index": i, "price": round(lows[i], 4)})
+    return out
 
-    if is_sideways:
-        return {"state": "IN_TREND", "trend": trend,
+
+def classify_fractals(fractals: List[Dict]) -> List[Dict]:
+    highs = sorted([f for f in fractals if f["type"] == "RESISTANCE"], key=lambda x: x["index"])
+    lows  = sorted([f for f in fractals if f["type"] == "SUPPORT"],    key=lambda x: x["index"])
+    result: List[Dict] = []
+    for i, f in enumerate(highs):
+        label = "HH" if i == 0 or f["price"] > highs[i - 1]["price"] else "LH"
+        result.append({"index": f["index"], "price": f["price"], "type": label})
+    for i, f in enumerate(lows):
+        label = "HL" if i == 0 or f["price"] > lows[i - 1]["price"] else "LL"
+        result.append({"index": f["index"], "price": f["price"], "type": label})
+    return sorted(result, key=lambda x: x["index"])
+
+
+def get_key_levels(classified: List[Dict]) -> Dict[str, Optional[float]]:
+    levels: Dict[str, Optional[float]] = {"HH": None, "HL": None, "LH": None, "LL": None}
+    for f in classified:
+        levels[f["type"]] = f["price"]
+    return levels
+
+
+def get_structural_swing(highs: List[float], lows: List[float],
+                         period: int = CHOCH_SWING_PERIOD) -> Dict[str, Optional[float]]:
+    """
+    Detect the most recent swing high and swing low using a short look-back/look-ahead.
+    Used for CHoCH detection so we don't wait for the full FRACTAL_PERIOD confirmation.
+    """
+    n = len(highs)
+    last_swing_high: Optional[float] = None
+    last_swing_low:  Optional[float] = None
+    for i in range(period, n - period):
+        if all(highs[i] > highs[i - j] and highs[i] > highs[i + j] for j in range(1, period + 1)):
+            last_swing_high = round(highs[i], 4)
+        if all(lows[i] < lows[i - j] and lows[i] < lows[i + j] for j in range(1, period + 1)):
+            last_swing_low = round(lows[i], 4)
+    return {"swing_high": last_swing_high, "swing_low": last_swing_low}
+
+
+def filter_by_trend(classified: List[Dict], trend: str) -> List[Dict]:
+    """Keep only fractals that belong to the current trend direction.
+    UPTREND  → HH + HL only  (no LH / LL)
+    DOWNTREND → LH + LL only  (no HH / HL)
+    """
+    keep = ("HH", "HL") if trend == "UPTREND" else ("LH", "LL")
+    return [f for f in classified if f["type"] in keep]
+
+
+def get_trend(classified: List[Dict]) -> str:
+    highs = [f for f in classified if f["type"] in ("HH", "LH")]
+    lows  = [f for f in classified if f["type"] in ("HL", "LL")]
+    if not highs or not lows:
+        return "UPTREND"
+    rh = highs[-1]["type"]
+    rl = lows[-1]["type"]
+    if rh == "HH" and rl == "HL":
+        return "UPTREND"
+    if rh == "LH" and rl == "LL":
+        return "DOWNTREND"
+    last_high_idx = highs[-1]["index"]
+    last_low_idx  = lows[-1]["index"]
+    if last_high_idx >= last_low_idx:
+        return "UPTREND" if rh == "HH" else "DOWNTREND"
+    else:
+        return "UPTREND" if rl == "HL" else "DOWNTREND"
+
+
+# ──────────────────────────────────────────────────
+# State detection
+# ──────────────────────────────────────────────────
+
+
+def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
+                 structural_swing: Optional[Dict] = None) -> Dict[str, Any]:
+    if not classified:
+        return {"state": "IN_TREND", "trend": "UPTREND",
                 "bos_level": None, "choch_level": None,
-                "description": f"Sideways/Consolidation · TSI {tsi_now:+.3f}"}
+                "description": "No fractal structure yet"}
+
+    trend    = get_trend(classified)
+    filtered = filter_by_trend(classified, trend)   # UPTREND→HH/HL only · DOWNTREND→LH/LL only
+    levels   = get_key_levels(filtered)
+    hh, hl, lh, ll = levels["HH"], levels["HL"], levels["LH"], levels["LL"]
+    tsi_now  = tsi_values[-1] if tsi_values else 0.0
+    sw       = structural_swing or {}
 
     if trend == "UPTREND":
-        # BOS ▲ — price breaks above SPH (uptrend continuation)
-        if sph is not None and price > sph:
+        # ── BOS ▲ — price breaks above HH → uptrend continuation ────────────
+        if hh is not None and price > hh:
             return {"state": "BOS_CONTINUATION", "trend": "UPTREND",
-                    "bos_level": sph, "choch_level": None,
-                    "description": f"BOS ▲ Broke SPH {sph:.4f} · Price {price:.4f} · Uptrend continuation"}
+                    "bos_level": hh, "choch_level": None,
+                    "description": f"BOS ▲ Broke HH {hh:.4f} · Price {price:.4f} (+{(price-hh)/hh*100:.2f}%) · Uptrend continuation"}
 
-        # CHoCH ▼ — price breaks below CoC (uptrend → downtrend reversal)
-        if coc is not None and price < coc:
+        # ── CHoCH ▼ — price breaks below confirmed HL → trend reversal ───────
+        choch_support = hl or sw.get("swing_low")
+        if choch_support is not None and price < choch_support:
             return {"state": "CHoCH_REVERSAL", "trend": "DOWNTREND",
-                    "bos_level": None, "choch_level": coc,
-                    "description": f"CHoCH ▼ Broke CoC {coc:.4f} · Price {price:.4f} · Uptrend → Downtrend"}
+                    "bos_level": None, "choch_level": choch_support,
+                    "description": f"CHoCH ▼ Broke {choch_support:.4f} · Price {price:.4f} · Uptrend → Downtrend"}
 
-        # PULLBACK ▲ — price retreated below SPH
-        if sph is not None and price < sph:
-            coc_desc = f" · CoC {coc:.4f}" if coc else ""
+        # ── PULLBACK ▲ — price retreated below recent swing high ─────────────
+        swing_high = sw.get("swing_high") or hh
+        if swing_high is not None and price < swing_high:
+            sup_desc = f" · support {choch_support:.4f}" if choch_support else ""
             return {"state": "PULLBACK", "trend": "UPTREND",
                     "bos_level": None, "choch_level": None,
-                    "description": f"Pullback ▲ {price:.4f} below SPH {sph:.4f} · TSI {tsi_now:+.3f}{coc_desc}"}
+                    "description": f"Pullback ▲ {price:.4f} below peak {swing_high:.4f} · TSI {tsi_now:+.3f}{sup_desc}"}
 
         return {"state": "IN_TREND", "trend": "UPTREND",
                 "bos_level": None, "choch_level": None,
-                "description": f"Uptrend · SPH {sph or '—'} · TSI {tsi_now:+.3f}"}
+                "description": f"Uptrend: HH {hh or '—'} · HL {hl or '—'}"}
 
     else:  # DOWNTREND
-        # BOS ▼ — price breaks below SPL (downtrend continuation)
-        if spl is not None and price < spl:
+        # ── BOS ▼ — price breaks below LL → downtrend continuation ──────────
+        if ll is not None and price < ll:
             return {"state": "BOS_CONTINUATION", "trend": "DOWNTREND",
-                    "bos_level": spl, "choch_level": None,
-                    "description": f"BOS ▼ Broke SPL {spl:.4f} · Price {price:.4f} · Downtrend continuation"}
+                    "bos_level": ll, "choch_level": None,
+                    "description": f"BOS ▼ Broke LL {ll:.4f} · Price {price:.4f} (-{(ll-price)/ll*100:.2f}%) · Downtrend continuation"}
 
-        # CHoCH ▲ — price breaks above CoC (downtrend → uptrend reversal)
-        if coc is not None and price > coc:
+        # ── CHoCH ▲ — price breaks above confirmed LH → trend reversal ───────
+        choch_resistance = lh or sw.get("swing_high")
+        if choch_resistance is not None and price > choch_resistance:
             return {"state": "CHoCH_REVERSAL", "trend": "UPTREND",
-                    "bos_level": None, "choch_level": coc,
-                    "description": f"CHoCH ▲ Broke CoC {coc:.4f} · Price {price:.4f} · Downtrend → Uptrend"}
+                    "bos_level": None, "choch_level": choch_resistance,
+                    "description": f"CHoCH ▲ Broke {choch_resistance:.4f} · Price {price:.4f} · Downtrend → Uptrend"}
 
-        # PULLBACK ▼ — price bounced above SPL
-        if spl is not None and price > spl:
-            coc_desc = f" · CoC {coc:.4f}" if coc else ""
+        # ── PULLBACK ▼ — price bounced above recent swing low ────────────────
+        swing_low = sw.get("swing_low") or ll
+        if swing_low is not None and price > swing_low:
+            res_desc = f" · resistance {choch_resistance:.4f}" if choch_resistance else ""
             return {"state": "PULLBACK", "trend": "DOWNTREND",
                     "bos_level": None, "choch_level": None,
-                    "description": f"Pullback ▼ {price:.4f} above SPL {spl:.4f} · TSI {tsi_now:+.3f}{coc_desc}"}
+                    "description": f"Pullback ▼ {price:.4f} above trough {swing_low:.4f} · TSI {tsi_now:+.3f}{res_desc}"}
 
         return {"state": "IN_TREND", "trend": "DOWNTREND",
                 "bos_level": None, "choch_level": None,
-                "description": f"Downtrend · SPL {spl or '—'} · TSI {tsi_now:+.3f}"}
+                "description": f"Downtrend: LH {lh or '—'} · LL {ll or '—'}"}
 
 
 # ──────────────────────────────────────────────────
@@ -207,53 +288,44 @@ async def fetch_candles(api: DerivAPI, symbol: str, count: int) -> List[Dict]:
     return resp.get("candles", [])
 
 
-def candles_to_df(candles: List[Dict]) -> pd.DataFrame:
-    df = pd.DataFrame(candles)
-    df["datetime"] = pd.to_datetime(df["epoch"], unit="s")
-    df.set_index("datetime", inplace=True)
-    return df[["open", "high", "low", "close"]].astype(float)
-
-
 async def analyze_symbol(api: DerivAPI, symbol: str, config: Dict) -> Optional[Dict]:
     try:
-        candles = await fetch_candles(api, symbol, 1000)
-        if len(candles) < MINIMUM_BAR_COUNT:
+        candles = await fetch_candles(api, symbol, 500)
+        if len(candles) < 120:
             return None
 
-        closes = [float(c["close"]) for c in candles]
         highs  = [float(c["high"])  for c in candles]
         lows   = [float(c["low"])   for c in candles]
+        closes = [float(c["close"]) for c in candles]
         price  = closes[-1]
 
-        df = candles_to_df(candles)
-
-        swing = Swing(
-            retrace_threshold_pct=RETRACE_THRESHOLD,
-            sideways_threshold=SIDEWAYS_THRESHOLD,
-            minimum_bar_count=MINIMUM_BAR_COUNT,
-            debug=False,
-        )
-        swing.run(sym=symbol, df=df)
+        fractals          = get_fractals(highs, lows, FRACTAL_PERIOD)
+        classified        = classify_fractals(fractals)
+        structural_swing  = get_structural_swing(highs, lows, CHOCH_SWING_PERIOD)
 
         tsi  = calc_tsi(closes, TSI_PERIOD)
         macd = calc_macd(closes, fast=21, slow=55, signal=21)
 
-        raw_trend = swing.trend
-        is_sideways = swing.is_sideways or raw_trend is None
-        trend = ("UPTREND" if raw_trend == "UP" else "DOWNTREND") if raw_trend else "UPTREND"
+        state_info = detect_state(price, classified, tsi["values"], structural_swing)
+        trend      = state_info["trend"]
 
-        sph = round(float(swing.sph), 4) if swing.sph else None
-        spl = round(float(swing.spl), 4) if swing.spl else None
-        coc = round(float(swing.coc), 4) if swing.coc else None
-
-        state_info = detect_state_swing(price, trend, sph, spl, coc, tsi["values"], is_sideways)
-
-        support    = spl
-        resistance = sph
+        filtered   = filter_by_trend(classified, trend)  # only trend-consistent fractals
+        levels     = get_key_levels(filtered)
+        support    = levels["HL"] if trend == "UPTREND" else levels["LL"]
+        resistance = levels["HH"] if trend == "UPTREND" else levels["LH"]
 
         volatility = round(
             ((max(highs[-20:]) - min(lows[-20:])) / min(lows[-20:])) * 100, 1
         ) if len(highs) >= 20 else 0.0
+
+        structure = {
+            "trend":           trend,
+            "last_resistance": resistance,
+            "last_support":    support,
+            "bos_level":       state_info.get("bos_level"),
+            "choch_level":     state_info.get("choch_level"),
+            "description":     state_info["description"],
+        }
 
         return {
             "symbol":        symbol,
@@ -262,17 +334,16 @@ async def analyze_symbol(api: DerivAPI, symbol: str, config: Dict) -> Optional[D
             "volatility":    volatility,
             "state":         state_info["state"],
             "trend":         trend,
-            "is_sideways":   is_sideways,
-            "leg_count":     swing.leg_count,
-            "bars_since":    swing.bars_since,
+            "fractal_count": len(fractals),
             "support":       support,
             "resistance":    resistance,
-            "coc":           coc,
             "bos_level":     state_info.get("bos_level"),
             "choch_level":   state_info.get("choch_level"),
             "description":   state_info["description"],
+            "structure":     structure,
             "tsi":           tsi,
             "macd":          macd,
+            "last_fractals": filtered[-4:],
             "last_updated":  datetime.utcnow().isoformat(),
         }
     except Exception as e:
@@ -293,6 +364,7 @@ async def run_full_analysis() -> Dict:
 
     await api.disconnect()
 
+    # Auto-trade: always runs — check each symbol in parallel
     await asyncio.gather(*[_trigger_trade_if_confirmed(r) for r in results])
 
     counts: Dict[str, int] = {
@@ -318,39 +390,29 @@ async def build_chart_data(symbol: str) -> Dict:
     candles = await fetch_candles(api, symbol, 1000)
     await api.disconnect()
 
-    closes = [float(c["close"]) for c in candles]
-    highs  = [float(c["high"])  for c in candles]
-    lows   = [float(c["low"])   for c in candles]
+    highs = [float(c["high"]) for c in candles]
+    lows  = [float(c["low"])  for c in candles]
 
-    df = candles_to_df(candles)
-    swing = Swing(
-        retrace_threshold_pct=RETRACE_THRESHOLD,
-        sideways_threshold=SIDEWAYS_THRESHOLD,
-        minimum_bar_count=MINIMUM_BAR_COUNT,
-        debug=False,
-    )
-    swing.run(sym=symbol, df=df)
-
-    raw_trend   = swing.trend
-    trend       = ("UPTREND" if raw_trend == "UP" else "DOWNTREND") if raw_trend else "UPTREND"
-    sph = round(float(swing.sph), 4) if swing.sph else None
-    spl = round(float(swing.spl), 4) if swing.spl else None
-    coc = round(float(swing.coc), 4) if swing.coc else None
+    raw_fractals = get_fractals(highs, lows, FRACTAL_PERIOD)
+    all_markers  = classify_fractals(raw_fractals)
+    trend        = get_trend(all_markers)
+    markers      = filter_by_trend(all_markers, trend)   # only trend-consistent labels
+    levels       = get_key_levels(markers)
 
     candle_data = [
         {"time": c["epoch"], "open": float(c["open"]), "high": float(c["high"]),
          "low": float(c["low"]), "close": float(c["close"])}
         for c in candles
     ]
-
     return {
         "symbol":       symbol,
         "trend":        trend,
         "candles":      candle_data,
-        "markers":      [],
-        "sph_level":    sph,
-        "spl_level":    spl,
-        "coc_level":    coc,
+        "markers":      markers,
+        "hh_level":     levels["HH"],
+        "hl_level":     levels["HL"],
+        "lh_level":     levels["LH"],
+        "ll_level":     levels["LL"],
         "bar_count":    len(candles),
         "last_updated": datetime.utcnow().isoformat(),
     }
@@ -361,6 +423,12 @@ async def build_chart_data(symbol: str) -> Dict:
 # ──────────────────────────────────────────────────
 
 def _macd_crossover(histogram_values: List[float], lookback: int = 3) -> Optional[str]:
+    """
+    Returns 'bullish' if MACD crossed above Signal within the last `lookback` bars,
+            'bearish' if MACD crossed below Signal within the last `lookback` bars,
+            None otherwise.
+    Checking a 3-bar window avoids missing the crossover when it falls between scans.
+    """
     if len(histogram_values) < 2:
         return None
     window = histogram_values[-(lookback + 1):]
@@ -375,6 +443,7 @@ def _macd_crossover(histogram_values: List[float], lookback: int = 3) -> Optiona
 
 
 async def _place_multiplier_trade(symbol: str, contract_type: str) -> Dict:
+    """Place MULTUP or MULTDOWN — $1 stake, SL $0.50, TP $1.00."""
     multiplier = SYMBOL_CONFIG[symbol]["multiplier"]
     api = DerivAPI(app_id=APP_ID)
     try:
@@ -415,9 +484,10 @@ async def _trigger_trade_if_confirmed(sym: Dict) -> None:
     """
     Fire a trade when ALL three conditions are met:
       1. state == PULLBACK
-      2. TSI at extreme: ≤ −0.7 (uptrend pullback) / ≥ +0.7 (downtrend pullback)
-         AND TSI hit that extreme within the last TSI_EXTREME_LOOKBACK bars
-      3. MACD histogram crossover in trend direction
+      2. TSI currently AT extreme: ≤ −0.7 (uptrend) / ≥ +0.7 (downtrend)
+         ±0.6 is the pullback validity window — if TSI crosses back through
+         ±0.6 without reaching ±0.7, the pullback is expired and no trade fires.
+      3. MACD line × Signal line crossover in trend direction
     """
     global _trade_log, _trade_cooldown
 
@@ -434,21 +504,26 @@ async def _trigger_trade_if_confirmed(sym: Dict) -> None:
     crossover  = _macd_crossover(hist_vals)
     symbol     = sym["symbol"]
 
+    # Condition 2 — TSI two-level pullback check
+    # ±0.7 = trade entry (must be AT this level to fire)
+    # ±0.6 = validity window (if TSI crosses back through ±0.6 without reaching ±0.7, pullback is dead)
     recent = tsi_series[-TSI_EXTREME_LOOKBACK:] if tsi_series else []
     if trend == "UPTREND":
-        armed = any(v <= TSI_OVERSOLD for v in recent)
-        if tsi_val > TSI_OVERSOLD or not armed:
+        armed = any(v <= TSI_OVERSOLD for v in recent)   # hit −0.7 within lookback
+        if tsi_val > TSI_OVERSOLD or not armed:          # not at −0.7 now OR never armed
             return
     if trend == "DOWNTREND":
-        armed = any(v >= TSI_OVERBOUGHT for v in recent)
-        if tsi_val < TSI_OVERBOUGHT or not armed:
+        armed = any(v >= TSI_OVERBOUGHT for v in recent) # hit +0.7 within lookback
+        if tsi_val < TSI_OVERBOUGHT or not armed:        # not at +0.7 now OR never armed
             return
 
+    # Condition 3 — MACD × Signal crossover in trend direction
     if trend == "UPTREND"   and crossover != "bullish":
         return
     if trend == "DOWNTREND" and crossover != "bearish":
         return
 
+    # Cooldown check
     now = time.time()
     if now - _trade_cooldown.get(symbol, 0) < TRADE_COOLDOWN_SECS:
         return
@@ -540,6 +615,8 @@ async def get_chart(symbol: str):
             return _chart_cache[symbol]
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ── Trading endpoints ─────────────────────────────
 
 @router.get("/trading/status")
 async def trading_status():

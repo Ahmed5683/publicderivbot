@@ -16,9 +16,10 @@ const ALL_SYMBOLS = [
 ];
 
 const LEGEND = [
-  { key: "SPH", label: "Swing Point High", color: "#ef4444" },
-  { key: "SPL", label: "Swing Point Low",  color: "#22c55e" },
-  { key: "CoC", label: "Change of Character (reversal level)", color: "#a78bfa" },
+  { key: "HH", label: "Higher High", color: "#22c55e" },
+  { key: "HL", label: "Higher Low",  color: "#4ade80" },
+  { key: "LH", label: "Lower High",  color: "#ef4444" },
+  { key: "LL", label: "Lower Low",   color: "#fca5a5" },
 ];
 
 const STATE_COLOR: Record<string, string> = {
@@ -160,10 +161,9 @@ export default function SymbolDetail() {
       {symData && (
         <div className="px-5 pb-2 flex flex-wrap gap-2">
           <StatPill label="Volatility"      value={`${symData.volatility.toFixed(1)}%`}  color="text-foreground" />
-          <StatPill label="Legs" value={`${(symData as any).leg_count ?? "—"}`} color="text-cyan-400" />
-          {symData.support    && <StatPill label="SPL (Support)"    value={symData.support.toFixed(4)}    color="text-green-400" />}
-          {symData.resistance && <StatPill label="SPH (Resistance)" value={symData.resistance.toFixed(4)} color="text-red-400"   />}
-          {(symData as any).coc != null && <StatPill label="CoC (Reversal)" value={((symData as any).coc as number).toFixed(4)} color="text-purple-400" />}
+          <StatPill label="Fractals(36)"    value={`${symData.fractal_count}`}            color="text-cyan-400" />
+          {symData.support    && <StatPill label="Support"    value={symData.support.toFixed(4)}    color="text-green-400" />}
+          {symData.resistance && <StatPill label="Resistance" value={symData.resistance.toFixed(4)} color="text-red-400"   />}
           {tsi && (
             <StatPill
               label="TSI Pearson r"
@@ -198,9 +198,11 @@ export default function SymbolDetail() {
           ) : (
             <CandleChart
               candles={chart?.candles ?? []}
-              sphLevel={(chart as any)?.sph_level}
-              splLevel={(chart as any)?.spl_level}
-              cocLevel={(chart as any)?.coc_level}
+              markers={chart?.markers ?? []}
+              hhLevel={chart?.hh_level}
+              hlLevel={chart?.hl_level}
+              lhLevel={chart?.lh_level}
+              llLevel={chart?.ll_level}
               trend={chart?.trend}
               tsiValues={tsi?.values ?? []}
               macdValues={macd?.values ?? []}
@@ -214,7 +216,7 @@ export default function SymbolDetail() {
       {/* ── Footer ───────────────────────────────────────────── */}
       <div className="px-5 pb-5 text-[10px] font-mono text-[#4b5563]">
         TSI = Pearson r (−1 to +1) · Oversold &lt; −0.7 · Overbought &gt; +0.7 ·
-        SwingTrend · Red=SPH · Green=SPL · Purple=CoC (Change of Character)
+        Fractals period=36 · Green=HH/HL · Red=LH/LL
       </div>
     </div>
   );

@@ -1,12 +1,13 @@
 import { useRef, useEffect, useState, useCallback } from "react";
-import type { Candle } from "@workspace/api-client-react";
+import type { Candle, FractalMarker } from "@workspace/api-client-react";
 
 interface CandleChartProps {
   candles: Candle[];
-  markers?: unknown[];
-  sphLevel?: number | null;
-  splLevel?: number | null;
-  cocLevel?: number | null;
+  markers?: FractalMarker[];
+  hhLevel?: number | null;
+  hlLevel?: number | null;
+  lhLevel?: number | null;
+  llLevel?: number | null;
   trend?: string;
   tsiValues?: number[];
   macdValues?: number[];
@@ -14,10 +15,18 @@ interface CandleChartProps {
   macdHistValues?: number[];
 }
 
+const MARKER_COLORS: Record<string, string> = {
+  HH: "#22c55e",
+  HL: "#4ade80",
+  LH: "#ef4444",
+  LL: "#fca5a5",
+};
+
 const LEVEL_STYLE: Record<string, { color: string; dash: number[] }> = {
-  SPH: { color: "#ef4444", dash: [] },
-  SPL: { color: "#22c55e", dash: [] },
-  CoC: { color: "#a78bfa", dash: [6, 4] },
+  HH: { color: "#22c55e", dash: [] },
+  HL: { color: "#22c55e", dash: [5, 5] },
+  LH: { color: "#ef4444", dash: [] },
+  LL: { color: "#ef4444", dash: [5, 5] },
 };
 
 const C = {
@@ -35,8 +44,9 @@ const C = {
 };
 
 const VISIBLE = 300;
-const RIGHT   = 110;
+const RIGHT   = 110;  // wide enough for "HH 747.10000"
 const BOTTOM  = 22;
+const DOT_R   = 4;
 
 function mapY(v: number, lo: number, hi: number, top: number, h: number) {
   if (hi === lo) return top + h / 2;
@@ -45,7 +55,8 @@ function mapY(v: number, lo: number, hi: number, top: number, h: number) {
 
 export function CandleChart({
   candles,
-  sphLevel, splLevel, cocLevel,
+  markers = [],
+  hhLevel, hlLevel, lhLevel, llLevel,
   tsiValues = [], macdValues = [], macdSignalValues = [], macdHistValues = [],
 }: CandleChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -57,12 +68,16 @@ export function CandleChart({
   const visible = candles.slice(start);
   const n       = visible.length;
 
+  // Align indicator tails to visible candles
   const vTsi       = tsiValues.slice(-n);
   const vMacdHist  = macdHistValues.slice(-n);
   const vMacd      = macdValues.slice(-n);
   const vSig       = macdSignalValues.slice(-n);
   const hasTsi     = vTsi.length > 0;
   const hasMacd    = vMacdHist.length > 0;
+
+  // Which markers fall within the visible window?
+  const visibleMarkers = markers.filter(m => m.index >= start && m.index < total);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -80,6 +95,7 @@ export function CandleChart({
     const ctx = canvas.getContext("2d")!;
     ctx.scale(dpr, dpr);
 
+    // ── Layout ─────────────────────────────────────────────
     const subPanelH  = hasTsi && hasMacd ? 240 : (hasTsi || hasMacd ? 120 : 0);
     const eachSub    = subPanelH / Math.max((hasTsi ? 1 : 0) + (hasMacd ? 1 : 0), 1);
     const MAIN_TOP   = 10;
@@ -88,13 +104,15 @@ export function CandleChart({
     const cw         = chartW / n;
     const bw         = Math.max(cw * 0.6, 1);
 
+    // ── Clear ───────────────────────────────────────────────
     ctx.fillStyle = C.bg;
     ctx.fillRect(0, 0, W, H);
 
-    // Price range — include level lines
+    // ── Price range ─────────────────────────────────────────
     const pMax0 = Math.max(...visible.map(c => c.high));
     const pMin0 = Math.min(...visible.map(c => c.low));
-    const levelPrices = [sphLevel, splLevel, cocLevel].filter(v => v != null) as number[];
+    // Also include level lines in range so they're always visible
+    const levelPrices = [hhLevel, hlLevel, lhLevel, llLevel].filter(Boolean) as number[];
     const allPrices   = [pMax0, pMin0, ...levelPrices];
     const rawMax = Math.max(...allPrices);
     const rawMin = Math.min(...allPrices);
@@ -102,7 +120,7 @@ export function CandleChart({
     const pMax   = rawMax + pad;
     const pMin   = rawMin - pad;
 
-    // Grid
+    // ── Grid ────────────────────────────────────────────────
     ctx.strokeStyle = C.grid;
     ctx.lineWidth   = 1;
     const gN = 6;
@@ -111,11 +129,12 @@ export function CandleChart({
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(chartW, y); ctx.stroke();
     }
 
-    // Horizontal level lines
+    // ── Horizontal level lines + right-axis labels ──────────
     const levels: Array<{ key: string; price: number }> = [];
-    if (sphLevel != null) levels.push({ key: "SPH", price: sphLevel });
-    if (splLevel != null) levels.push({ key: "SPL", price: splLevel });
-    if (cocLevel != null) levels.push({ key: "CoC", price: cocLevel });
+    if (hhLevel != null) levels.push({ key: "HH", price: hhLevel });
+    if (hlLevel != null) levels.push({ key: "HL", price: hlLevel });
+    if (lhLevel != null) levels.push({ key: "LH", price: lhLevel });
+    if (llLevel != null) levels.push({ key: "LL", price: llLevel });
 
     for (const { key, price } of levels) {
       const { color, dash } = LEVEL_STYLE[key];
@@ -126,13 +145,14 @@ export function CandleChart({
       ctx.setLineDash(dash);
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(chartW, y); ctx.stroke();
       ctx.setLineDash([]);
+      // Label on right
       ctx.fillStyle = color;
       ctx.font      = "bold 10px monospace";
       ctx.textAlign = "left";
       ctx.fillText(`${key}  ${price.toFixed(4)}`, chartW + 4, y + 3);
     }
 
-    // Candles
+    // ── Candles ─────────────────────────────────────────────
     for (let i = 0; i < n; i++) {
       const c      = visible[i];
       const isUp   = c.close >= c.open;
@@ -155,7 +175,34 @@ export function CandleChart({
       ctx.globalAlpha = 1;
     }
 
-    // Crosshair on hover
+    // ── Fractal marker dots ──────────────────────────────────
+    for (const m of visibleMarkers) {
+      const ci  = m.index - start;           // position in visible array
+      const c   = visible[ci];
+      if (!c) continue;
+      const cx  = ci * cw + cw / 2;
+      const col = MARKER_COLORS[m.type] ?? "#ffffff";
+      const isHigh = m.type === "HH" || m.type === "LH";
+      const dotY   = isHigh
+        ? mapY(c.high,  pMin, pMax, MAIN_TOP, MAIN_H) - DOT_R * 2.5
+        : mapY(c.low,   pMin, pMax, MAIN_TOP, MAIN_H) + DOT_R * 2.5;
+
+      // Filled dot
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(cx, dotY, DOT_R, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Tiny label next to dot (only if candles are wide enough)
+      if (cw > 6) {
+        ctx.fillStyle = col;
+        ctx.font      = "bold 8px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(m.type, cx, isHigh ? dotY - DOT_R - 2 : dotY + DOT_R + 9);
+      }
+    }
+
+    // ── Crosshair & price label on hover ────────────────────
     if (hoverIdx !== null && hoverIdx < n) {
       const c  = visible[hoverIdx];
       const cx = hoverIdx * cw + cw / 2;
@@ -171,13 +218,14 @@ export function CandleChart({
       ctx.fillText(c.close.toFixed(4), chartW + 4, closeY + 3);
     }
 
-    // Price axis
+    // ── Price axis ──────────────────────────────────────────
     ctx.fillStyle = C.text;
     ctx.font      = "9px monospace";
     ctx.textAlign = "left";
     for (let i = 0; i <= gN; i++) {
       const price = pMax - (i / gN) * (pMax - pMin);
       const y     = MAIN_TOP + (MAIN_H / gN) * i;
+      // Skip if a level label is too close
       const tooClose = levels.some(({ price: lp }) => {
         const ly = mapY(lp, pMin, pMax, MAIN_TOP, MAIN_H);
         return Math.abs(ly - y) < 10;
@@ -188,7 +236,7 @@ export function CandleChart({
       }
     }
 
-    // TSI subplot
+    // ── TSI subplot ─────────────────────────────────────────
     if (hasTsi) {
       const TSI_TOP = MAIN_TOP + MAIN_H + 8;
       const TSI_H   = eachSub - 6;
@@ -198,6 +246,7 @@ export function CandleChart({
       ctx.fillStyle = C.textBrt; ctx.font = "bold 9px monospace"; ctx.textAlign = "left";
       ctx.fillText("TSI(55) · Pearson r", 4, TSI_TOP + 11);
 
+      // Threshold lines: ±0.7 = trade entry (brighter), ±0.6 = validity window (dimmer)
       const thresholds: Array<{ v: number; label: string; alpha: string; dash: number[] }> = [
         { v:  0.7, label: "+0.7", alpha: "55", dash: [4, 3] },
         { v:  0.6, label: "+0.6", alpha: "30", dash: [2, 4] },
@@ -236,7 +285,7 @@ export function CandleChart({
       ctx.fillText(lastTsi.toFixed(3), chartW + 4, mapY(lastTsi, -1, 1, TSI_TOP, TSI_H) + 3);
     }
 
-    // MACD subplot
+    // ── MACD subplot ─────────────────────────────────────────
     if (hasMacd) {
       const MACD_TOP = MAIN_TOP + MAIN_H + 8 + (hasTsi ? eachSub + 4 : 0);
       const MACD_H   = eachSub - 6;
@@ -259,6 +308,7 @@ export function CandleChart({
 
       const mStart = n - vMacdHist.length;
 
+      // Histogram
       vMacdHist.forEach((v, i) => {
         const x    = (mStart + i) * cw + (cw - bw) / 2;
         const barY = v >= 0 ? mapY(v, mLo, mHi, MACD_TOP, MACD_H) : zeroY;
@@ -267,6 +317,7 @@ export function CandleChart({
         ctx.fillRect(x, v >= 0 ? barY : zeroY, Math.max(bw, 1), barH);
       });
 
+      // Lines
       const drawLine = (vals: number[], color: string, dash: number[]) => {
         ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.setLineDash(dash);
         ctx.beginPath();
@@ -288,7 +339,7 @@ export function CandleChart({
         zeroY + (lastH >= 0 ? -4 : 12));
     }
 
-    // Time axis
+    // ── Time axis ────────────────────────────────────────────
     const interval = Math.max(1, Math.floor(n / 7));
     ctx.fillStyle  = C.text; ctx.font = "9px monospace"; ctx.textAlign = "center";
     visible.forEach((c, i) => {
@@ -297,7 +348,7 @@ export function CandleChart({
       const d = new Date(c.time * 1000);
       ctx.fillText(d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), x, H - 4);
     });
-  }, [visible, n, start, sphLevel, splLevel, cocLevel,
+  }, [visible, n, start, visibleMarkers, hhLevel, hlLevel, lhLevel, llLevel,
       vTsi, vMacd, vSig, vMacdHist, hasTsi, hasMacd, hoverIdx]);
 
   useEffect(() => { draw(); }, [draw]);
