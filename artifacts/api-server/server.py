@@ -12,7 +12,7 @@ from deriv_api import DerivAPI
 import uvicorn
 
 APP_ID = os.getenv("DERIV_APP_ID", "104094")
-TOKEN  = os.getenv("DERIV_TOKEN", "iaw8gpjk3H1wV1K")
+TOKEN  = os.getenv("DERIV_TOKEN", "pat_74a15d96d5d4c5ce20dc73f19dafa085aebe2c3f76fb0a86add9a7fded25233e")
 PORT   = int(os.getenv("PORT", "8080"))
 
 SYMBOL_CONFIG = {
