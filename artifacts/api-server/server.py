@@ -494,15 +494,18 @@ async def _place_multiplier_trade(symbol: str, contract_type: str) -> Dict:
 
         # Step 3: Connect and trade via authenticated WebSocket
         async with websockets.connect(ws_url, open_timeout=15) as ws:
-            # Get proposal
+            # Get proposal — use new API field names + embed SL/TP in proposal
             await ws.send(json.dumps({
-                "proposal":      1,
-                "amount":        1,
-                "basis":         "stake",
-                "contract_type": contract_type,
-                "currency":      "USD",
-                "symbol":        symbol,
-                "multiplier":    multiplier,
+                "proposal":          1,
+                "amount":            1,
+                "basis":             "stake",
+                "contract_type":     contract_type,
+                "currency":          "USD",
+                "duration_unit":     "s",
+                "multiplier":        multiplier,
+                "underlying_symbol": symbol,
+                "limit_order": {"stop_loss": 0.50, "take_profit": 1.00},
+                "req_id":            1,
             }))
             prop_resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=15))
             if prop_resp.get("error"):
@@ -513,25 +516,19 @@ async def _place_multiplier_trade(symbol: str, contract_type: str) -> Dict:
             ask_price   = prop_resp["proposal"]["ask_price"]
 
             # Buy
-            await ws.send(json.dumps({"buy": proposal_id, "price": ask_price}))
+            await ws.send(json.dumps({"buy": proposal_id, "price": ask_price, "req_id": 2}))
             buy_resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=15))
             if buy_resp.get("error"):
                 return {"ok": False, "error": buy_resp["error"].get("message", "buy failed"),
                         "contract_type": contract_type, "symbol": symbol}
 
             contract_id = buy_resp["buy"]["contract_id"]
-
-            # Set SL/TP
-            await ws.send(json.dumps({
-                "contract_update": 1,
-                "contract_id": contract_id,
-                "limit_order": {"stop_loss": 0.5, "take_profit": 1.0},
-            }))
-            await asyncio.wait_for(ws.recv(), timeout=10)
+            balance_after = buy_resp["buy"].get("balance_after")
 
             return {"ok": True, "contract_id": contract_id,
                     "contract_type": contract_type, "symbol": symbol,
-                    "multiplier": multiplier, "ask_price": ask_price}
+                    "multiplier": multiplier, "ask_price": ask_price,
+                    "balance_after": balance_after}
     except Exception as e:
         return {"ok": False, "error": str(e),
                 "contract_type": contract_type, "symbol": symbol}
