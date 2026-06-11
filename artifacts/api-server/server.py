@@ -3,6 +3,8 @@ import os
 import time
 import math
 import json
+import urllib.request
+import urllib.error
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, HTTPException
@@ -12,10 +14,13 @@ from pydantic import BaseModel
 import websockets
 import uvicorn
 
-APP_ID = os.getenv("DERIV_APP_ID", "104094")
-TOKEN  = os.getenv("DERIV_TOKEN", "pat_a646d33aff915ac93cd35e46cee0ca7e294109f36bfac462c49701dcccf81b6f")
-PORT   = int(os.getenv("PORT", "8080"))
-WS_URL = f"wss://ws.derivws.com/websockets/v3?app_id={APP_ID}"
+APP_ID  = os.getenv("DERIV_APP_ID", "")
+TOKEN   = os.getenv("DERIV_TOKEN", "")
+PORT    = int(os.getenv("PORT", "8080"))
+# Legacy WS endpoint — no auth needed for market data (public)
+WS_URL  = f"wss://ws.derivws.com/websockets/v3?app_id=1089"
+# New API REST base — used for trading (PAT auth)
+API_BASE = "https://api.derivws.com/trading/v1/options"
 
 SYMBOL_CONFIG = {
     "1HZ10V":  {"multiplier": 400, "name": "Volatility 10"},
@@ -426,20 +431,69 @@ def _macd_crossover(histogram_values: List[float], lookback: int = 3) -> Optiona
     return None
 
 
+def _get_demo_account_id() -> Optional[str]:
+    """Fetch the demo account ID from the new Deriv REST API."""
+    if not TOKEN or not APP_ID:
+        return None
+    try:
+        req = urllib.request.Request(
+            f"{API_BASE}/accounts",
+            headers={
+                "Authorization": f"Bearer {TOKEN}",
+                "Deriv-App-ID": APP_ID,
+                "Content-Type": "application/json",
+            }
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+            for account in data.get("data", []):
+                if account.get("account_type") == "demo":
+                    return account["account_id"]
+    except Exception as e:
+        print(f"[AUTH] Failed to fetch accounts: {e}")
+    return None
+
+
+def _get_otp_ws_url(account_id: str) -> Optional[str]:
+    """Get an authenticated WebSocket URL via OTP endpoint."""
+    try:
+        req = urllib.request.Request(
+            f"{API_BASE}/accounts/{account_id}/otp",
+            data=b"{}",
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {TOKEN}",
+                "Deriv-App-ID": APP_ID,
+                "Content-Type": "application/json",
+            }
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+            return data.get("data", {}).get("url")
+    except Exception as e:
+        print(f"[AUTH] Failed to get OTP URL: {e}")
+    return None
+
+
 async def _place_multiplier_trade(symbol: str, contract_type: str) -> Dict:
     """Place MULTUP or MULTDOWN — $1 stake, SL $0.50, TP $1.00.
-    Attempts authorize with the PAT token; logs failure gracefully."""
+    Uses new Deriv API: REST OTP → authenticated WebSocket."""
     multiplier = SYMBOL_CONFIG[symbol]["multiplier"]
     try:
-        async with websockets.connect(WS_URL, open_timeout=15) as ws:
-            # Attempt authorisation with PAT token
-            await ws.send(json.dumps({"authorize": TOKEN}))
-            auth_resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=10))
-            if auth_resp.get("error"):
-                err_msg = auth_resp["error"].get("message", "auth failed")
-                return {"ok": False, "error": f"Auth failed: {err_msg}",
-                        "contract_type": contract_type, "symbol": symbol}
+        # Step 1: Get demo account ID
+        account_id = _get_demo_account_id()
+        if not account_id:
+            return {"ok": False, "error": "No demo account found or auth failed",
+                    "contract_type": contract_type, "symbol": symbol}
 
+        # Step 2: Get authenticated WebSocket URL via OTP
+        ws_url = _get_otp_ws_url(account_id)
+        if not ws_url:
+            return {"ok": False, "error": "Failed to get OTP WebSocket URL",
+                    "contract_type": contract_type, "symbol": symbol}
+
+        # Step 3: Connect and trade via authenticated WebSocket
+        async with websockets.connect(ws_url, open_timeout=15) as ws:
             # Get proposal
             await ws.send(json.dumps({
                 "proposal":      1,
@@ -452,7 +506,7 @@ async def _place_multiplier_trade(symbol: str, contract_type: str) -> Dict:
             }))
             prop_resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=15))
             if prop_resp.get("error"):
-                return {"ok": False, "error": prop_resp["error"].get("message","proposal failed"),
+                return {"ok": False, "error": prop_resp["error"].get("message", "proposal failed"),
                         "contract_type": contract_type, "symbol": symbol}
 
             proposal_id = prop_resp["proposal"]["id"]
@@ -462,7 +516,7 @@ async def _place_multiplier_trade(symbol: str, contract_type: str) -> Dict:
             await ws.send(json.dumps({"buy": proposal_id, "price": ask_price}))
             buy_resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=15))
             if buy_resp.get("error"):
-                return {"ok": False, "error": buy_resp["error"].get("message","buy failed"),
+                return {"ok": False, "error": buy_resp["error"].get("message", "buy failed"),
                         "contract_type": contract_type, "symbol": symbol}
 
             contract_id = buy_resp["buy"]["contract_id"]
@@ -561,6 +615,35 @@ router = APIRouter(prefix="/api")
 @router.get("/healthz")
 async def health():
     return {"status": "ok"}
+
+
+@router.get("/account/balance")
+async def account_balance():
+    if not TOKEN or not APP_ID:
+        raise HTTPException(status_code=503, detail="DERIV_TOKEN / DERIV_APP_ID not configured")
+    try:
+        req = urllib.request.Request(
+            f"{API_BASE}/accounts",
+            headers={
+                "Authorization": f"Bearer {TOKEN}",
+                "Deriv-App-ID": APP_ID,
+                "Content-Type": "application/json",
+            }
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+        accounts = data.get("data", [])
+        demo = next((a for a in accounts if a.get("account_type") == "demo"), None)
+        real = next((a for a in accounts if a.get("account_type") == "real"), None)
+        return {
+            "demo": demo,
+            "real": real,
+            "all_accounts": accounts,
+        }
+    except urllib.error.HTTPError as e:
+        raise HTTPException(status_code=e.code, detail=e.read().decode())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/market/symbols")
