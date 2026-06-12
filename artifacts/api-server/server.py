@@ -29,10 +29,10 @@ SYMBOL_CONFIG = {
     # Volatility Indices
     "1HZ10V":    {"multiplier": 400,  "name": "Volatility 10"},
     "R_10":      {"multiplier": 400,  "name": "Volatility 10 (1s)"},
-    "1HZ15V":    {"multiplier": 300,  "name": "Volatility 15"},
+    # 1HZ15V (Volatility 15) removed — Deriv: InvalidInputAsset, not offered for multipliers
     "1HZ25V":    {"multiplier": 160,  "name": "Volatility 25"},
     "R_25":      {"multiplier": 160,  "name": "Volatility 25 (1s)"},
-    "1HZ30V":    {"multiplier": 140,  "name": "Volatility 30"},
+    # 1HZ30V (Volatility 30) removed — Deriv: InvalidInputAsset, not offered for multipliers
     "1HZ50V":    {"multiplier": 80,   "name": "Volatility 50"},
     "R_50":      {"multiplier": 80,   "name": "Volatility 50 (1s)"},
     "1HZ75V":    {"multiplier": 50,   "name": "Volatility 75"},
