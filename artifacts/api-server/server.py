@@ -37,7 +37,7 @@ SYMBOL_CONFIG = {
     "R_50":      {"multiplier": 80,   "name": "Volatility 50 (1s)"},
     "1HZ75V":    {"multiplier": 50,   "name": "Volatility 75"},
     "R_75":      {"multiplier": 50,   "name": "Volatility 75 (1s)"},
-    "1HZ90V":    {"multiplier": 45,   "name": "Volatility 90"},
+    # 1HZ90V (Volatility 90) removed — Deriv does not offer multiplier contracts for this asset
     "1HZ100V":   {"multiplier": 40,   "name": "Volatility 100"},
     "R_100":     {"multiplier": 40,   "name": "Volatility 100 (1s)"},
     # Jump Indices
