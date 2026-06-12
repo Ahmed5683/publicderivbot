@@ -23,19 +23,40 @@ WS_URL  = f"wss://ws.derivws.com/websockets/v3?app_id=1089"
 API_BASE = "https://api.derivws.com/trading/v1/options"
 
 SYMBOL_CONFIG = {
-    "FRXAUDJPY": {"multiplier": 500, "name": "AUD/JPY"},
-    "FRXAUDUSD": {"multiplier": 500, "name": "AUD/USD"},
-    "FRXEURAUD": {"multiplier": 800, "name": "EUR/AUD"},
-    "FRXEURCAD": {"multiplier": 800, "name": "EUR/CAD"},
-    "FRXEURCHF": {"multiplier": 500, "name": "EUR/CHF"},
-    "FRXEURGBP": {"multiplier": 800, "name": "EUR/GBP"},
-    "FRXEURJPY": {"multiplier": 500, "name": "EUR/JPY"},
-    "FRXEURUSD": {"multiplier": 800, "name": "EUR/USD"},
-    "FRXGBPUSD": {"multiplier": 800, "name": "GBP/USD"},
-    "FRXGBPJPY": {"multiplier": 800, "name": "GBP/JPY"},
-    "FRXGBPAUD": {"multiplier": 800, "name": "GBP/AUD"},
-    "FRXUSDCAD": {"multiplier": 800, "name": "USD/CAD"},
-    "FRXUSDCHF": {"multiplier": 500, "name": "USD/CHF"},
+    # Volatility Indices
+    "1HZ10V":    {"multiplier": 400,  "name": "Volatility 10"},
+    "R_10":      {"multiplier": 400,  "name": "Volatility 10 (1s)"},
+    "1HZ15V":    {"multiplier": 300,  "name": "Volatility 15"},
+    "1HZ25V":    {"multiplier": 160,  "name": "Volatility 25"},
+    "R_25":      {"multiplier": 160,  "name": "Volatility 25 (1s)"},
+    "1HZ30V":    {"multiplier": 140,  "name": "Volatility 30"},
+    "1HZ50V":    {"multiplier": 80,   "name": "Volatility 50"},
+    "R_50":      {"multiplier": 80,   "name": "Volatility 50 (1s)"},
+    "1HZ75V":    {"multiplier": 50,   "name": "Volatility 75"},
+    "R_75":      {"multiplier": 50,   "name": "Volatility 75 (1s)"},
+    "1HZ90V":    {"multiplier": 45,   "name": "Volatility 90"},
+    "1HZ100V":   {"multiplier": 40,   "name": "Volatility 100"},
+    "R_100":     {"multiplier": 40,   "name": "Volatility 100 (1s)"},
+    # Jump Indices
+    "JD10":      {"multiplier": 100,  "name": "Jump 10"},
+    "JD25":      {"multiplier": 50,   "name": "Jump 25"},
+    "JD50":      {"multiplier": 20,   "name": "Jump 50"},
+    "JD75":      {"multiplier": 15,   "name": "Jump 75"},
+    "JD100":     {"multiplier": 10,   "name": "Jump 100"},
+    # Forex Pairs
+    "FRXAUDJPY": {"multiplier": 500,  "name": "AUD/JPY"},
+    "FRXAUDUSD": {"multiplier": 500,  "name": "AUD/USD"},
+    "FRXEURAUD": {"multiplier": 800,  "name": "EUR/AUD"},
+    "FRXEURCAD": {"multiplier": 800,  "name": "EUR/CAD"},
+    "FRXEURCHF": {"multiplier": 500,  "name": "EUR/CHF"},
+    "FRXEURGBP": {"multiplier": 800,  "name": "EUR/GBP"},
+    "FRXEURJPY": {"multiplier": 500,  "name": "EUR/JPY"},
+    "FRXEURUSD": {"multiplier": 800,  "name": "EUR/USD"},
+    "FRXGBPUSD": {"multiplier": 800,  "name": "GBP/USD"},
+    "FRXGBPJPY": {"multiplier": 800,  "name": "GBP/JPY"},
+    "FRXGBPAUD": {"multiplier": 800,  "name": "GBP/AUD"},
+    "FRXUSDCAD": {"multiplier": 800,  "name": "USD/CAD"},
+    "FRXUSDCHF": {"multiplier": 500,  "name": "USD/CHF"},
 }
 
 FRACTAL_PERIOD       = 25
