@@ -92,21 +92,40 @@ async def ws_send_recv(ws, payload: Dict, timeout: float = 15.0) -> Dict:
     return resp
 
 
-async def fetch_candles_ws(symbol: str, count: int) -> List[Dict]:
-    """Fetch OHLC candles without any authorisation — market data is public.
-    Uses a semaphore so at most 8 WS connections open at once (31 simultaneous
-    connections caused mass timeouts)."""
-    async with _ws_semaphore:
-        async with websockets.connect(WS_URL, open_timeout=20) as ws:
-            resp = await ws_send_recv(ws, {
+async def _fetch_candles_once(symbol: str, count: int) -> List[Dict]:
+    """Single attempt — acquire semaphore slot, open WS, fetch candles, release.
+    asyncio.wait_for gives a hard 25 s cap so a hung connection never holds
+    the semaphore slot indefinitely."""
+    async def _do():
+        async with websockets.connect(WS_URL, open_timeout=15) as ws:
+            return await ws_send_recv(ws, {
                 "ticks_history": symbol,
                 "adjust_start_time": 1,
                 "count": count,
                 "end": "latest",
                 "granularity": 60,
                 "style": "candles",
-            }, timeout=20.0)
+            }, timeout=15.0)
+
+    async with _ws_semaphore:
+        resp = await asyncio.wait_for(_do(), timeout=25)
     return resp.get("candles", [])
+
+
+async def fetch_candles_ws(symbol: str, count: int) -> List[Dict]:
+    """Fetch OHLC candles with one automatic retry.
+    Uses a semaphore (max 15 concurrent) to prevent mass timeouts.
+    A hard 25-second per-attempt timeout ensures a hung connection
+    never blocks a semaphore slot indefinitely."""
+    try:
+        return await _fetch_candles_once(symbol, count)
+    except Exception as e:
+        # Brief pause before retry so a transient rate-limit clears
+        await asyncio.sleep(2)
+        try:
+            return await _fetch_candles_once(symbol, count)
+        except Exception as e2:
+            raise RuntimeError(f"fetch failed after 2 attempts: {e2}") from e2
 
 
 # ──────────────────────────────────────────────────
