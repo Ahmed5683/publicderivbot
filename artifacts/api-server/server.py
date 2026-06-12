@@ -21,7 +21,7 @@ PORT    = int(os.getenv("PORT", "8080"))
 WS_URL  = f"wss://ws.derivws.com/websockets/v3?app_id=1089"
 
 # Limit concurrent WebSocket connections — opening 31 at once causes mass timeouts
-_ws_semaphore = asyncio.Semaphore(8)
+_ws_semaphore = asyncio.Semaphore(15)
 # New API REST base — used for trading (PAT auth)
 API_BASE = "https://api.derivws.com/trading/v1/options"
 
@@ -735,18 +735,24 @@ async def start_background_scanner():
     """Run market analysis + auto-trading every 60 seconds in the background,
     regardless of whether anyone is hitting the API."""
     async def _loop():
-        print("[SCANNER] Background scanner started — will run every 60 seconds")
+        print("[SCANNER] Background scanner started — fixed 60-second interval")
         while True:
+            tick_start = time.time()
             try:
                 data = await run_full_analysis()
                 global _analysis_cache, _analysis_cache_time
                 _analysis_cache      = data
                 _analysis_cache_time = time.time()
-                pb = data.get("pullback_count", 0)
-                print(f"[SCANNER] Scan complete — {len(data.get('symbols', []))} symbols | {pb} pullback(s)")
+                pb       = data.get("pullback_count", 0)
+                elapsed  = time.time() - tick_start
+                print(f"[SCANNER] Scan complete — {len(data.get('symbols', []))} symbols | {pb} pullback(s) | {elapsed:.1f}s")
             except Exception as e:
                 print(f"[SCANNER] Error during scan: {e}")
-            await asyncio.sleep(60)
+            # Sleep whatever remains of the 60-second window so the next
+            # scan fires exactly 60 s after this one started, regardless
+            # of how long the scan itself took.
+            elapsed = time.time() - tick_start
+            await asyncio.sleep(max(0, 60 - elapsed))
 
     asyncio.create_task(_loop())
 
