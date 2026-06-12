@@ -19,6 +19,9 @@ TOKEN   = os.getenv("DERIV_TOKEN", "")
 PORT    = int(os.getenv("PORT", "8080"))
 # Legacy WS endpoint — no auth needed for market data (public)
 WS_URL  = f"wss://ws.derivws.com/websockets/v3?app_id=1089"
+
+# Limit concurrent WebSocket connections — opening 31 at once causes mass timeouts
+_ws_semaphore = asyncio.Semaphore(8)
 # New API REST base — used for trading (PAT auth)
 API_BASE = "https://api.derivws.com/trading/v1/options"
 
@@ -90,16 +93,19 @@ async def ws_send_recv(ws, payload: Dict, timeout: float = 15.0) -> Dict:
 
 
 async def fetch_candles_ws(symbol: str, count: int) -> List[Dict]:
-    """Fetch OHLC candles without any authorisation — market data is public."""
-    async with websockets.connect(WS_URL, open_timeout=15) as ws:
-        resp = await ws_send_recv(ws, {
-            "ticks_history": symbol,
-            "adjust_start_time": 1,
-            "count": count,
-            "end": "latest",
-            "granularity": 60,
-            "style": "candles",
-        })
+    """Fetch OHLC candles without any authorisation — market data is public.
+    Uses a semaphore so at most 8 WS connections open at once (31 simultaneous
+    connections caused mass timeouts)."""
+    async with _ws_semaphore:
+        async with websockets.connect(WS_URL, open_timeout=20) as ws:
+            resp = await ws_send_recv(ws, {
+                "ticks_history": symbol,
+                "adjust_start_time": 1,
+                "count": count,
+                "end": "latest",
+                "granularity": 60,
+                "style": "candles",
+            }, timeout=20.0)
     return resp.get("candles", [])
 
 
@@ -359,21 +365,31 @@ async def analyze_symbol(symbol: str, config: Dict) -> Optional[Dict]:
             "last_updated":  datetime.utcnow().isoformat(),
         }
     except Exception as e:
-        print(f"Error analyzing {symbol}: {e}")
+        print(f"[SCAN ERROR] {symbol}: {e}")
         return None
 
 
 async def run_full_analysis() -> Dict:
-    tasks = [
-        analyze_symbol(symbol, config)
-        for symbol, config in SYMBOL_CONFIG.items()
-    ]
+    symbols_list = list(SYMBOL_CONFIG.items())
+    tasks = [analyze_symbol(symbol, config) for symbol, config in symbols_list]
     all_results = await asyncio.gather(*tasks, return_exceptions=True)
 
     results: List[Dict] = []
-    for r in all_results:
+    failed: List[str] = []
+    skipped: List[str] = []
+    for (symbol, _), r in zip(symbols_list, all_results):
         if isinstance(r, dict):
             results.append(r)
+        elif r is None:
+            skipped.append(symbol)
+        else:
+            failed.append(f"{symbol}({r})")
+
+    if skipped:
+        print(f"[SCAN SKIP]  no/insufficient candles: {', '.join(skipped)}")
+    if failed:
+        print(f"[SCAN FAIL]  exceptions: {', '.join(failed)}")
+    print(f"[SCAN OK]    {len(results)}/{len(symbols_list)} symbols succeeded")
 
     await asyncio.gather(*[_trigger_trade_if_confirmed(r) for r in results])
 
