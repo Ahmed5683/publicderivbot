@@ -72,10 +72,10 @@ CACHE_TTL            = 60
 TRADE_COOLDOWN_SECS  = 300
 
 # ── SwingTrend settings ─────────────────────────────────────
-RETRACE_THRESHOLD  = 5
+RETRACE_THRESHOLD  = 1.5
 SIDEWAYS_THRESHOLD = 20
 MINIMUM_BAR_COUNT  = 40
-ANALYSIS_CANDLES   = 500
+ANALYSIS_CANDLES   = 200
 CHART_CANDLES      = 1000
 
 _analysis_cache:      Optional[Dict] = None
