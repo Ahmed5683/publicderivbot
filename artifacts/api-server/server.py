@@ -9,9 +9,12 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 import pandas as pd
 from swingtrend import Swing
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRouter
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import websockets
 import uvicorn
@@ -706,6 +709,16 @@ async def trading_status():
 
 
 app.include_router(router)
+
+# ── Production: serve built frontend ──────────────────────────
+_FRONTEND = Path(__file__).parent.parent / "dashboard" / "dist" / "public"
+
+if _FRONTEND.exists():
+    app.mount("/assets", StaticFiles(directory=str(_FRONTEND / "assets")), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str):
+        return FileResponse(str(_FRONTEND / "index.html"))
 
 
 @app.on_event("startup")
