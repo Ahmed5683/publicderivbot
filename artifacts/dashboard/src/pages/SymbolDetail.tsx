@@ -50,6 +50,8 @@ export default function SymbolDetail() {
 
   const tsi      = symData?.tsi;
   const momentum = symData?.momentum;
+  const macd     = (symData as any)?.macd as { macd: number; signal: number; hist: number; bullish_cross: boolean; bearish_cross: boolean; macd_values: number[]; signal_values: number[]; hist_values: number[] } | undefined;
+  const chartMacd = (chart as any)?.macd as typeof macd;
 
   const tsiColor =
     tsi?.is_oversold   ? "text-green-400" :
@@ -201,6 +203,13 @@ export default function SymbolDetail() {
                 : "text-[#9ca3af]"}
             />
           )}
+          {macd && (
+            <StatPill
+              label={`MACD(21,36,36)${macd.bullish_cross ? " ▲ BULL X" : macd.bearish_cross ? " ▼ BEAR X" : ""}`}
+              value={`${macd.macd >= 0 ? "+" : ""}${macd.macd.toFixed(5)}  sig ${macd.signal >= 0 ? "+" : ""}${macd.signal.toFixed(5)}`}
+              color={macd.bullish_cross ? "text-green-400" : macd.bearish_cross ? "text-red-400" : "text-indigo-400"}
+            />
+          )}
         </div>
       )}
 
@@ -227,6 +236,9 @@ export default function SymbolDetail() {
               trend={trend}
               tsiValues={tsi?.values ?? []}
               momentumValues={momentum?.values ?? []}
+              macdValues={chartMacd?.macd_values ?? macd?.macd_values ?? []}
+              signalValues={chartMacd?.signal_values ?? macd?.signal_values ?? []}
+              histValues={chartMacd?.hist_values ?? macd?.hist_values ?? []}
             />
           )}
         </div>
@@ -234,8 +246,9 @@ export default function SymbolDetail() {
 
       {/* ── Footer ────────────────────────────────────────────── */}
       <div className="px-5 pb-5 text-[10px] font-mono text-[#4b5563]">
-        TSI = Pearson r (−1 to +1) · Oversold &lt; −0.8 · Overbought &gt; +0.8 ·
-        Momentum(55) = close[i] − close[i−55] · Pullback: mom &lt; 0 in UPTREND, mom &gt; 0 in DOWNTREND ·
+        TSI(55) = Pearson r (−1 to +1) · Oversold &lt; −0.8 · Overbought &gt; +0.8 ·
+        Momentum(55) = close[i] − close[i−55] · MACD(21,36,36) crossover = primary trigger ·
+        Momentum &lt; 0 in UPTREND / &gt; 0 in DOWNTREND = confirmation ·
         UPTREND chart shows SPH + CoC · DOWNTREND chart shows SPL + CoC
       </div>
     </div>
