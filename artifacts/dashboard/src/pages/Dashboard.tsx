@@ -58,23 +58,13 @@ function tsiDisplay(tsi: SymbolAnalysis["tsi"]) {
   return { label: tsi.value.toFixed(3), color: "text-cyan-400", slope, slopeColor, slopeArrow };
 }
 
-function macdCrossover(sym: SymbolAnalysis): "bullish" | "bearish" | null {
-  const vals = sym.macd?.histogram_values ?? [];
-  if (vals.length < 2) return null;
-  const window = vals.slice(-4);
-  for (let i = 1; i < window.length; i++) {
-    if (window[i - 1] < 0 && window[i] >= 0) return "bullish";
-    if (window[i - 1] > 0 && window[i] <= 0) return "bearish";
-  }
-  return null;
-}
-
 function tradeSignalReady(sym: SymbolAnalysis): boolean {
   if (sym.state !== "PULLBACK") return false;
-  const tsiVal    = sym.tsi?.value ?? 0;
-  const crossover = macdCrossover(sym);
-  if (sym.trend === "UPTREND")   return tsiVal < -0.7 && crossover === "bullish";
-  if (sym.trend === "DOWNTREND") return tsiVal >  0.7 && crossover === "bearish";
+  const tsiVals = sym.tsi?.values ?? [];
+  const recentTsi = tsiVals.slice(-20);
+  const mom = sym.momentum;
+  if (sym.trend === "UPTREND")   return recentTsi.some(v => v <= -0.8) && (mom?.zero_cross_up ?? false);
+  if (sym.trend === "DOWNTREND") return recentTsi.some(v => v >= 0.8)  && (mom?.zero_cross_down ?? false);
   return false;
 }
 
@@ -143,7 +133,7 @@ export default function Dashboard() {
             DERIV MARKET SCANNER
           </h1>
           <p className="text-xs text-muted-foreground font-mono mt-0.5">
-            Fractals(36) · TSI Pearson r(55) · MACD(21,55,21) · 500 candles · Auto-trading active
+            SwingTrend · TSI Pearson r(100) · SPH/SPL/CHoCH · 1000 candles · Auto-trading active
           </p>
         </div>
 
@@ -205,9 +195,9 @@ export default function Dashboard() {
                     <th className="text-center px-4 py-3">State</th>
                     <th className="text-center px-4 py-3">TSI(r)</th>
                     <th className="text-center px-4 py-3">TSI Δ</th>
-                    <th className="text-right px-4 py-3">MACD Hist</th>
-                    <th className="text-right px-4 py-3">Frac</th>
-                    <th className="text-left px-4 py-3">S / R</th>
+                    <th className="text-right px-4 py-3">SPH</th>
+                    <th className="text-right px-4 py-3">SPL</th>
+                    <th className="text-right px-4 py-3">CHoCH</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -249,24 +239,14 @@ export default function Dashboard() {
                             {slopeArrow} {slope !== 0 ? Math.abs(slope).toFixed(4) : "—"}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-right tabular-nums text-xs">
-                          {sym.macd ? (
-                            <span className={sym.macd.histogram >= 0 ? "text-green-400" : "text-red-400"}>
-                              {sym.macd.histogram >= 0 ? "+" : ""}{sym.macd.histogram.toFixed(4)}
-                            </span>
-                          ) : "—"}
+                        <td className="px-4 py-3 text-right tabular-nums text-xs text-red-400">
+                          {sym.sph != null ? sym.sph.toFixed(4) : "—"}
                         </td>
-                        <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                          {sym.fractal_count}
+                        <td className="px-4 py-3 text-right tabular-nums text-xs text-green-400">
+                          {sym.spl != null ? sym.spl.toFixed(4) : "—"}
                         </td>
-                        <td className="px-4 py-3 text-left text-xs">
-                          {sym.support && sym.resistance ? (
-                            <>
-                              <span className="text-green-400">S:{sym.support.toFixed(3)}</span>
-                              {" "}
-                              <span className="text-red-400">R:{sym.resistance.toFixed(3)}</span>
-                            </>
-                          ) : "—"}
+                        <td className="px-4 py-3 text-right tabular-nums text-xs text-purple-400">
+                          {sym.choch_level != null ? sym.choch_level.toFixed(4) : "—"}
                         </td>
                       </tr>
                     );
