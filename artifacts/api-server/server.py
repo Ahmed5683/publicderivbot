@@ -66,7 +66,6 @@ SYMBOL_CONFIG = {
 TSI_PERIOD           = 55     # Pearson r trend strength
 TSI_OVERSOLD         = -0.8
 TSI_OVERBOUGHT       =  0.8
-TSI_EXTREME_LOOKBACK = 20
 MOMENTUM_PERIOD      = 55     # bars for momentum confirmation
 MACD_FAST            = 21     # MACD fast EMA period
 MACD_SLOW            = 36     # MACD slow EMA period
@@ -526,13 +525,13 @@ async def _place_multiplier_trade(symbol: str, contract_type: str) -> Dict:
 
 
 async def _trigger_trade_if_confirmed(sym: Dict) -> None:
-    """Trade conditions (all three must be met):
-      UPTREND:   1) TSI recently ≤ -0.8 (armed)
+    """Trade conditions (all three must be met at the current bar):
+      UPTREND:   1) TSI ≤ -0.8 RIGHT NOW (oversold)
                  2) MACD bullish crossover (fast crosses above signal)
                  3) Momentum < 0 (price still in pullback)
                  → MULTUP
 
-      DOWNTREND: 1) TSI recently ≥ +0.8 (armed)
+      DOWNTREND: 1) TSI ≥ +0.8 RIGHT NOW (overbought)
                  2) MACD bearish crossover (fast crosses below signal)
                  3) Momentum > 0 (price still in pullback)
                  → MULTDOWN
@@ -548,16 +547,14 @@ async def _trigger_trade_if_confirmed(sym: Dict) -> None:
     macd     = sym.get("macd") or {}
     symbol   = sym["symbol"]
 
-    tsi_val    = tsi.get("value", 0.0)
-    tsi_series = tsi.get("values", [])
-    recent_tsi = tsi_series[-TSI_EXTREME_LOOKBACK:] if tsi_series else []
-    mom_val    = momentum.get("value", 0.0)
-    macd_val   = macd.get("macd", 0.0)
-    sig_val    = macd.get("signal", 0.0)
+    tsi_val  = tsi.get("value", 0.0)
+    mom_val  = momentum.get("value", 0.0)
+    macd_val = macd.get("macd", 0.0)
+    sig_val  = macd.get("signal", 0.0)
 
     if trend == "UPTREND":
-        # 1) TSI must have been oversold recently
-        if not any(v <= TSI_OVERSOLD for v in recent_tsi):
+        # 1) TSI must be oversold RIGHT NOW
+        if tsi_val > TSI_OVERSOLD:
             return
         # 2) MACD bullish crossover
         if not macd.get("bullish_cross"):
@@ -568,8 +565,8 @@ async def _trigger_trade_if_confirmed(sym: Dict) -> None:
         contract_type = "MULTUP"
 
     elif trend == "DOWNTREND":
-        # 1) TSI must have been overbought recently
-        if not any(v >= TSI_OVERBOUGHT for v in recent_tsi):
+        # 1) TSI must be overbought RIGHT NOW
+        if tsi_val < TSI_OVERBOUGHT:
             return
         # 2) MACD bearish crossover
         if not macd.get("bearish_cross"):
