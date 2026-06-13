@@ -74,8 +74,7 @@ TRADE_COOLDOWN_SECS  = 300
 # ── SwingTrend settings ─────────────────────────────────────
 RETRACE_THRESHOLD  = 5
 SIDEWAYS_THRESHOLD = 20
-MINIMUM_BAR_COUNT  = 60
-LOOKBACK_CANDLES   = 1000
+MINIMUM_BAR_COUNT  = 40
 CHART_CANDLES      = 5000
 
 _analysis_cache:      Optional[Dict] = None
@@ -180,7 +179,7 @@ def calc_momentum(closes: List[float], period: int = MOMENTUM_PERIOD) -> Dict:
 
 async def analyze_symbol(symbol: str, config: Dict) -> Optional[Dict]:
     try:
-        candles = await fetch_candles_ws(symbol, LOOKBACK_CANDLES)
+        candles = await fetch_candles_ws(symbol, CHART_CANDLES)
         if len(candles) < 120:
             return None
 
