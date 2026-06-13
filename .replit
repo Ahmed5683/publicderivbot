@@ -4,7 +4,7 @@ modules = ["nodejs-20", "web", "python-3.11"]
 router = "application"
 deploymentTarget = "vm"
 run = ["bash", "-c", "cd /home/runner/workspace/artifacts/api-server && PORT=5000 .venv/bin/python server.py"]
-build = ["bash", "-c", "cd /home/runner/workspace/artifacts/dashboard && pnpm run build"]
+build = ["bash", "-c", "cd /home/runner/workspace/artifacts/api-server && python3.11 -m venv .venv && uv pip install --python .venv/bin/python3.11 -r requirements.txt && cd /home/runner/workspace/artifacts/dashboard && pnpm run build"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
