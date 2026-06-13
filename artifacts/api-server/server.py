@@ -75,7 +75,8 @@ TRADE_COOLDOWN_SECS  = 300
 RETRACE_THRESHOLD  = 5
 SIDEWAYS_THRESHOLD = 20
 MINIMUM_BAR_COUNT  = 40
-CHART_CANDLES      = 5000
+ANALYSIS_CANDLES   = 500
+CHART_CANDLES      = 1000
 
 _analysis_cache:      Optional[Dict] = None
 _analysis_cache_time: float = 0
@@ -179,7 +180,7 @@ def calc_momentum(closes: List[float], period: int = MOMENTUM_PERIOD) -> Dict:
 
 async def analyze_symbol(symbol: str, config: Dict) -> Optional[Dict]:
     try:
-        candles = await fetch_candles_ws(symbol, CHART_CANDLES)
+        candles = await fetch_candles_ws(symbol, ANALYSIS_CANDLES)
         if len(candles) < 120:
             return None
 
@@ -202,7 +203,6 @@ async def analyze_symbol(symbol: str, config: Dict) -> Optional[Dict]:
             retrace_threshold_pct=RETRACE_THRESHOLD,
             sideways_threshold=SIDEWAYS_THRESHOLD,
             minimum_bar_count=MINIMUM_BAR_COUNT,
-            debug=False,
         )
         swing.run(sym=symbol, df=df)
 
@@ -337,9 +337,11 @@ async def build_chart_data(symbol: str) -> Dict:
         "high":  highs, "low": lows, "close": closes,
     })
     df.set_index("datetime", inplace=True)
-    swing = Swing(retrace_threshold_pct=RETRACE_THRESHOLD,
-                  sideways_threshold=SIDEWAYS_THRESHOLD,
-                  minimum_bar_count=MINIMUM_BAR_COUNT, debug=False)
+    swing = Swing(
+        retrace_threshold_pct=RETRACE_THRESHOLD,
+        sideways_threshold=SIDEWAYS_THRESHOLD,
+        minimum_bar_count=MINIMUM_BAR_COUNT,
+    )
     swing.run(sym=symbol, df=df)
 
     raw_trend = swing.trend
