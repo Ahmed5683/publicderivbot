@@ -1,4 +1,5 @@
 fastapi
 uvicorn[standard]
-python-deriv-api
 websockets==10.3
+pandas
+swingtrend
