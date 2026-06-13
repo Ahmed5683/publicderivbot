@@ -72,10 +72,10 @@ CACHE_TTL            = 60
 TRADE_COOLDOWN_SECS  = 300
 
 # ── SwingTrend settings ─────────────────────────────────────
-RETRACE_THRESHOLD  = 2.5
+RETRACE_THRESHOLD  = 5
 SIDEWAYS_THRESHOLD = 20
-MINIMUM_BAR_COUNT  = 20
-LOOKBACK_CANDLES   = 300
+MINIMUM_BAR_COUNT  = 60
+LOOKBACK_CANDLES   = 1000
 CHART_CANDLES      = 5000
 
 _analysis_cache:      Optional[Dict] = None
@@ -190,11 +190,13 @@ async def analyze_symbol(symbol: str, config: Dict) -> Optional[Dict]:
         price  = closes[-1]
 
         df = pd.DataFrame({
+            "datetime": [pd.Timestamp(c["epoch"], unit="s") for c in candles],
             "open":  [float(c["open"]) for c in candles],
             "high":  highs,
             "low":   lows,
             "close": closes,
         })
+        df.set_index("datetime", inplace=True)
 
         # SwingTrend — official library
         swing = Swing(
@@ -331,9 +333,11 @@ async def build_chart_data(symbol: str) -> Dict:
     closes = [float(c["close"]) for c in candles]
 
     df = pd.DataFrame({
+        "datetime": [pd.Timestamp(c["epoch"], unit="s") for c in candles],
         "open":  [float(c["open"]) for c in candles],
         "high":  highs, "low": lows, "close": closes,
     })
+    df.set_index("datetime", inplace=True)
     swing = Swing(retrace_threshold_pct=RETRACE_THRESHOLD,
                   sideways_threshold=SIDEWAYS_THRESHOLD,
                   minimum_bar_count=MINIMUM_BAR_COUNT, debug=False)
