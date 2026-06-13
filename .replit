@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "python-3.12", "web"]
+modules = ["nodejs-20", "web", "python-3.11"]
 
 [deployment]
 router = "application"
@@ -33,7 +33,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd artifacts/api-server && PORT=8080 python server.py"
+args = "cd artifacts/api-server && PORT=8080 .venv/bin/python server.py"
 waitForPort = 8080
 
 [[workflows.workflow]]
@@ -70,11 +70,7 @@ externalPort = 5000
 
 [[ports]]
 localPort = 8080
-externalPort = 80
-
-[[ports]]
-localPort = 8081
-externalPort = 8081
+externalPort = 8080
 
 [[ports]]
 localPort = 23183
@@ -82,3 +78,4 @@ externalPort = 3000
 
 [nix]
 channel = "stable-25_05"
+packages = ["glibcLocales"]
