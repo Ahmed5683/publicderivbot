@@ -63,7 +63,7 @@ SYMBOL_CONFIG = {
 }
 
 # ── Indicator settings ──────────────────────────────────────
-TSI_PERIOD           = 100    # Pearson r trend strength
+TSI_PERIOD           = 55     # Pearson r trend strength
 TSI_OVERSOLD         = -0.8
 TSI_OVERBOUGHT       =  0.8
 TSI_EXTREME_LOOKBACK = 20
@@ -643,7 +643,7 @@ app.include_router(router)
 @app.on_event("startup")
 async def start_background_scanner():
     async def _loop():
-        print("[SCANNER] Background scanner started — SwingTrend + TSI(100) + Momentum")
+        print("[SCANNER] Background scanner started — SwingTrend + TSI(55) + Momentum")
         while True:
             tick_start = time.time()
             try:
