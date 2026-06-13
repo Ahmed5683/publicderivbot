@@ -14,7 +14,7 @@ interface TradeEntry {
   contract_type: string;
   trend:         string;
   tsi:           number | null;
-  macd_hist:     number | null;
+  momentum:      number | null;
   contract_id:   string | null;
   ok:            boolean;
   error?:        string;
@@ -266,9 +266,10 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {symbols.filter(s => s.state === "PULLBACK").map(s => {
                 const ready      = tradeSignalReady(s);
-                const cross      = macdCrossover(s);
-                const tsiOk      = s.trend === "UPTREND" ? (s.tsi?.value ?? 0) < -0.7 : (s.tsi?.value ?? 0) > 0.7;
-                const crossOk    = s.trend === "UPTREND" ? cross === "bullish" : cross === "bearish";
+                const tsiVals    = s.tsi?.values ?? [];
+                const recentTsi  = tsiVals.slice(-20);
+                const tsiOk      = s.trend === "UPTREND" ? recentTsi.some(v => v <= -0.8) : recentTsi.some(v => v >= 0.8);
+                const momOk      = s.trend === "UPTREND" ? (s.momentum?.zero_cross_up ?? false) : (s.momentum?.zero_cross_down ?? false);
                 const inCooldown = (tradingStatus.cooldowns[s.symbol] ?? 0) > 0;
 
                 return (
@@ -314,9 +315,9 @@ export default function Dashboard() {
                         {tsiOk ? "✓" : "✗"} TSI {s.trend === "UPTREND" ? "oversold" : "overbought"} ({s.tsi?.value.toFixed(3) ?? "—"})
                       </div>
                       <div className={`text-xs font-mono flex items-center gap-1.5 ${
-                        crossOk ? "text-green-400" : "text-muted-foreground"
+                        momOk ? "text-green-400" : "text-muted-foreground"
                       }`}>
-                        {crossOk ? "✓" : "✗"} MACD × Signal {s.trend === "UPTREND" ? "bullish" : "bearish"} crossover
+                        {momOk ? "✓" : "✗"} Momentum zero-cross {s.trend === "UPTREND" ? "upward" : "downward"}
                       </div>
                       {!ready && (
                         <div className="text-xs text-muted-foreground/50 font-mono pt-0.5">
@@ -351,7 +352,7 @@ export default function Dashboard() {
                     <th className="text-left px-4 py-2">Symbol</th>
                     <th className="text-center px-4 py-2">Direction</th>
                     <th className="text-right px-4 py-2">TSI</th>
-                    <th className="text-right px-4 py-2">MACD Hist</th>
+                    <th className="text-right px-4 py-2">Momentum</th>
                     <th className="text-left px-4 py-2">Contract ID</th>
                     <th className="text-center px-4 py-2">Status</th>
                   </tr>
@@ -376,9 +377,9 @@ export default function Dashboard() {
                         {t.tsi !== null ? t.tsi.toFixed(3) : "—"}
                       </td>
                       <td className="px-4 py-2 text-right tabular-nums">
-                        {t.macd_hist !== null ? (
-                          <span className={t.macd_hist >= 0 ? "text-green-400" : "text-red-400"}>
-                            {t.macd_hist >= 0 ? "+" : ""}{t.macd_hist.toFixed(4)}
+                        {t.momentum !== null && t.momentum !== undefined ? (
+                          <span className={t.momentum >= 0 ? "text-green-400" : "text-red-400"}>
+                            {t.momentum >= 0 ? "+" : ""}{t.momentum.toFixed(4)}
                           </span>
                         ) : "—"}
                       </td>
@@ -399,9 +400,9 @@ export default function Dashboard() {
         )}
 
         <div className="text-xs font-mono text-muted-foreground border-t border-border pt-4">
-          TSI = Pearson r (−1 to +1) · Oversold &lt; −0.7 · Overbought &gt; +0.7 · Fractals period=36 ·
-          BOS = close above HH or below LL · CHoCH = close above swing high or below swing low ·
-          Trade = PULLBACK + TSI extreme + MACD × Signal crossover · SL $0.50 · TP $1.00
+          TSI = Pearson r (−1 to +1) · Oversold &lt; −0.8 · Overbought &gt; +0.8 · SwingTrend retrace=5% ·
+          SPH = Swing Point High · SPL = Swing Point Low · CHoCH = Change of Character (reversal level) ·
+          Trade = PULLBACK + TSI extreme (recent 20 bars) + Momentum zero-cross · SL $0.50 · TP $2.00
         </div>
       </main>
     </div>
