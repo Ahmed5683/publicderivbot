@@ -24,11 +24,13 @@ const C = {
   tsiLine:  "#00d4ff",
   momLine:  "#f59e0b",
   cocColor: "#a78bfa",
+  scrollBg: "rgba(255,255,255,0.06)",
+  scrollFg: "rgba(255,255,255,0.18)",
 };
 
 const VISIBLE = 300;
 const RIGHT   = 120;
-const BOTTOM  = 22;
+const BOTTOM  = 38; // extra room for scroll bar
 
 function mapY(v: number, lo: number, hi: number, top: number, h: number) {
   if (hi === lo) return top + h / 2;
@@ -44,15 +46,22 @@ export function CandleChart({
 }: CandleChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef    = useRef<HTMLCanvasElement>(null);
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const [hoverIdx, setHoverIdx]       = useState<number | null>(null);
+  // scrollOffset: how many candles from the right end are hidden (0 = latest candles visible)
+  const [scrollOffset, setScrollOffset] = useState(0);
+  const isDragging   = useRef(false);
+  const dragStartX   = useRef(0);
+  const dragStartOff = useRef(0);
 
   const total   = candles.length;
-  const start   = Math.max(0, total - VISIBLE);
-  const visible = candles.slice(start);
+  const maxOff  = Math.max(0, total - VISIBLE);
+  const clampedOff = Math.min(Math.max(scrollOffset, 0), maxOff);
+  const start   = Math.max(0, total - VISIBLE - clampedOff);
+  const visible = candles.slice(start, start + VISIBLE);
   const n       = visible.length;
 
-  const vTsi = tsiValues.slice(-n);
-  const vMom = momentumValues.slice(-n);
+  const vTsi = tsiValues.slice(start, start + VISIBLE);
+  const vMom = momentumValues.slice(start, start + VISIBLE);
   const hasTsi = vTsi.length > 0;
   const hasMom = vMom.length > 0;
 
@@ -72,23 +81,19 @@ export function CandleChart({
     const ctx = canvas.getContext("2d")!;
     ctx.scale(dpr, dpr);
 
-    // ── Layout ──────────────────────────────────────────────
+    const SCROLL_H   = 12;
     const subCount   = (hasTsi ? 1 : 0) + (hasMom ? 1 : 0);
     const subPanelH  = subCount === 2 ? 240 : subCount === 1 ? 120 : 0;
     const eachSub    = subPanelH / Math.max(subCount, 1);
     const MAIN_TOP   = 10;
-    const MAIN_H     = H - BOTTOM - 10 - subPanelH - (subPanelH > 0 ? 8 : 0);
+    const MAIN_H     = H - BOTTOM - 10 - subPanelH - (subPanelH > 0 ? 8 : 0) - SCROLL_H;
     const chartW     = W - RIGHT;
     const cw         = chartW / n;
     const bw         = Math.max(cw * 0.6, 1);
 
-    // ── Clear ────────────────────────────────────────────────
     ctx.fillStyle = C.bg;
     ctx.fillRect(0, 0, W, H);
 
-    // ── Build level lines based on trend ─────────────────────
-    // UPTREND:   SPH (green solid) + CoC (purple dashed)
-    // DOWNTREND: SPL (red solid)   + CoC (purple dashed)
     type LevelEntry = { label: string; price: number; color: string; dash: number[] };
     const levels: LevelEntry[] = [];
     if (trend === "UPTREND") {
@@ -103,9 +108,8 @@ export function CandleChart({
       if (cocLevel != null) levels.push({ label: "CoC", price: cocLevel, color: C.cocColor, dash: [5, 4] });
     }
 
-    // ── Price range (include level lines) ────────────────────
-    const pMax0 = Math.max(...visible.map(c => c.high));
-    const pMin0 = Math.min(...visible.map(c => c.low));
+    const pMax0  = Math.max(...visible.map(c => c.high));
+    const pMin0  = Math.min(...visible.map(c => c.low));
     const lvPrices = levels.map(l => l.price);
     const rawMax = Math.max(pMax0, ...lvPrices);
     const rawMin = Math.min(pMin0, ...lvPrices);
@@ -113,7 +117,6 @@ export function CandleChart({
     const pMax   = rawMax + pad;
     const pMin   = rawMin - pad;
 
-    // ── Grid ─────────────────────────────────────────────────
     ctx.strokeStyle = C.grid; ctx.lineWidth = 1;
     const gN = 6;
     for (let i = 0; i <= gN; i++) {
@@ -121,7 +124,6 @@ export function CandleChart({
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(chartW, y); ctx.stroke();
     }
 
-    // ── Horizontal level lines + right-axis labels ────────────
     for (const { label, price, color, dash } of levels) {
       const y = mapY(price, pMin, pMax, MAIN_TOP, MAIN_H);
       if (y < MAIN_TOP - 4 || y > MAIN_TOP + MAIN_H + 4) continue;
@@ -136,7 +138,6 @@ export function CandleChart({
       ctx.fillText(`${label}  ${price.toFixed(4)}`, chartW + 4, y + 3);
     }
 
-    // ── Candles ──────────────────────────────────────────────
     for (let i = 0; i < n; i++) {
       const c      = visible[i];
       const isUp   = c.close >= c.open;
@@ -158,7 +159,6 @@ export function CandleChart({
       ctx.globalAlpha = 1;
     }
 
-    // ── Crosshair + hover price label ─────────────────────────
     if (hoverIdx !== null && hoverIdx < n) {
       const c  = visible[hoverIdx];
       const cx = hoverIdx * cw + cw / 2;
@@ -172,7 +172,6 @@ export function CandleChart({
       ctx.fillText(c.close.toFixed(4), chartW + 4, closeY + 3);
     }
 
-    // ── Price axis ────────────────────────────────────────────
     ctx.fillStyle = C.text; ctx.font = "9px monospace"; ctx.textAlign = "left";
     for (let i = 0; i <= gN; i++) {
       const price = pMax - (i / gN) * (pMax - pMin);
@@ -187,7 +186,6 @@ export function CandleChart({
       }
     }
 
-    // ── TSI subplot ───────────────────────────────────────────
     if (hasTsi) {
       const TSI_TOP = MAIN_TOP + MAIN_H + 8;
       const TSI_H   = eachSub - 6;
@@ -233,7 +231,6 @@ export function CandleChart({
       ctx.fillText(lastTsi.toFixed(3), chartW + 4, mapY(lastTsi, -1, 1, TSI_TOP, TSI_H) + 3);
     }
 
-    // ── Momentum subplot ──────────────────────────────────────
     if (hasMom) {
       const MOM_TOP = MAIN_TOP + MAIN_H + 8 + (hasTsi ? eachSub + 4 : 0);
       const MOM_H   = eachSub - 6;
@@ -248,13 +245,9 @@ export function CandleChart({
       const mLo = -momAbsMax * 1.1;
       const zeroY = mapY(0, mLo, mHi, MOM_TOP, MOM_H);
 
-      // Zero line
       ctx.strokeStyle = C.axis; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(0, zeroY); ctx.lineTo(chartW, zeroY); ctx.stroke();
 
-      // Shade pullback zone:
-      // UPTREND: momentum < 0 = pullback (green shade below zero)
-      // DOWNTREND: momentum > 0 = pullback (red shade above zero)
       const momStart = n - vMom.length;
       vMom.forEach((v, i) => {
         const x   = (momStart + i) * cw + (cw - bw) / 2;
@@ -272,7 +265,6 @@ export function CandleChart({
         ctx.fillRect(x, v >= 0 ? barY : zeroY, Math.max(bw, 1), barH);
       });
 
-      // Line
       ctx.strokeStyle = C.momLine; ctx.lineWidth = 1.5;
       ctx.beginPath();
       let firstM = true;
@@ -283,7 +275,6 @@ export function CandleChart({
       });
       ctx.stroke();
 
-      // Last value label
       const lastMom = vMom[vMom.length - 1] ?? 0;
       const lastY   = mapY(lastMom, mLo, mHi, MOM_TOP, MOM_H);
       let labelColor = C.momLine;
@@ -294,16 +285,48 @@ export function CandleChart({
       ctx.fillText((lastMom >= 0 ? "+" : "") + lastMom.toFixed(4), chartW + 4, lastY + 3);
     }
 
-    // ── Time axis ─────────────────────────────────────────────
+    // ── Time axis ──────────────────────────────────────────────
     const interval = Math.max(1, Math.floor(n / 7));
     ctx.fillStyle = C.text; ctx.font = "9px monospace"; ctx.textAlign = "center";
     visible.forEach((c, i) => {
       if (i % interval !== 0) return;
       const x = i * cw + cw / 2;
       const d = new Date(c.time * 1000);
-      ctx.fillText(d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), x, H - 4);
+      ctx.fillText(d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), x, H - SCROLL_H - 10);
     });
-  }, [visible, n, start, sphLevel, splLevel, cocLevel, trend,
+
+    // ── Scroll bar ─────────────────────────────────────────────
+    if (total > VISIBLE) {
+      const BAR_Y = H - SCROLL_H - 2;
+      const BAR_W = chartW - 4;
+
+      // Track
+      ctx.fillStyle = C.scrollBg;
+      ctx.beginPath();
+      (ctx as any).roundRect?.(2, BAR_Y, BAR_W, SCROLL_H - 2, 4) ??
+        ctx.rect(2, BAR_Y, BAR_W, SCROLL_H - 2);
+      ctx.fill();
+
+      // Thumb: fraction of total that is visible
+      const thumbW  = Math.max((VISIBLE / total) * BAR_W, 20);
+      // position: clampedOff=0 → thumb at right, clampedOff=maxOff → thumb at left
+      const thumbX  = 2 + (1 - clampedOff / maxOff) * (BAR_W - thumbW);
+      ctx.fillStyle = C.scrollFg;
+      ctx.beginPath();
+      (ctx as any).roundRect?.(thumbX, BAR_Y, thumbW, SCROLL_H - 2, 4) ??
+        ctx.rect(thumbX, BAR_Y, thumbW, SCROLL_H - 2);
+      ctx.fill();
+
+      // Label
+      ctx.fillStyle = C.text; ctx.font = "8px monospace"; ctx.textAlign = "right";
+      ctx.fillText(
+        clampedOff === 0
+          ? "LIVE ▶"
+          : `◀ ${clampedOff} bars back`,
+        chartW - 4, BAR_Y - 2,
+      );
+    }
+  }, [visible, n, clampedOff, total, maxOff, sphLevel, splLevel, cocLevel, trend,
       vTsi, vMom, hasTsi, hasMom, hoverIdx]);
 
   useEffect(() => { draw(); }, [draw]);
@@ -314,26 +337,68 @@ export function CandleChart({
     return () => obs.disconnect();
   }, [draw]);
 
+  // ── Wheel to scroll ─────────────────────────────────────────
+  const handleWheel = useCallback((e: WheelEvent) => {
+    e.preventDefault();
+    const delta = Math.round(e.deltaY / 3) || (e.deltaY > 0 ? 3 : -3);
+    setScrollOffset(prev => Math.min(Math.max(prev + delta, 0), maxOff));
+  }, [maxOff]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.addEventListener("wheel", handleWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", handleWheel);
+  }, [handleWheel]);
+
+  // ── Drag to pan ─────────────────────────────────────────────
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    isDragging.current   = true;
+    dragStartX.current   = e.clientX;
+    dragStartOff.current = clampedOff;
+    setHoverIdx(null);
+  };
+
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const cont = containerRef.current;
     if (!cont || n === 0) return;
-    const rect  = e.currentTarget.getBoundingClientRect();
+    const chartW = cont.clientWidth - RIGHT;
+    const cwLocal = chartW / n;
+
+    if (isDragging.current) {
+      const dx        = e.clientX - dragStartX.current;
+      const candleDx  = Math.round(-dx / cwLocal);
+      setScrollOffset(Math.min(Math.max(dragStartOff.current + candleDx, 0), maxOff));
+      return;
+    }
+
+    const rect   = e.currentTarget.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
-    const cwLocal = (cont.clientWidth - RIGHT) / n;
-    const idx  = Math.floor(mouseX / cwLocal);
+    const idx    = Math.floor(mouseX / cwLocal);
     if (idx >= 0 && idx < n) setHoverIdx(idx);
   };
+
+  const handleMouseUp = () => { isDragging.current = false; };
 
   const hoverCandle = hoverIdx !== null ? visible[hoverIdx] : null;
 
   return (
-    <div ref={containerRef} className="relative w-full" style={{ height: 660 }}>
+    <div ref={containerRef} className="relative w-full select-none" style={{ height: 660 }}>
       <canvas
         ref={canvasRef}
-        className="w-full h-full cursor-crosshair"
+        className="w-full h-full"
+        style={{ cursor: isDragging.current ? "grabbing" : "crosshair" }}
+        onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
-        onMouseLeave={() => setHoverIdx(null)}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={() => { isDragging.current = false; setHoverIdx(null); }}
       />
+      {/* Scroll hint — shown only when at latest position */}
+      {clampedOff === 0 && total > VISIBLE && (
+        <div className="absolute bottom-10 right-32 text-[9px] font-mono text-[#4b5563] pointer-events-none select-none">
+          scroll or drag to pan ←
+        </div>
+      )}
       {hoverCandle && (
         <div className="absolute top-3 left-3 bg-[#0f172a] border border-[#1e293b] rounded px-3 py-2 text-xs font-mono pointer-events-none z-10 shadow-xl">
           <div className="text-[#6b7280] mb-1.5 text-[10px]">
