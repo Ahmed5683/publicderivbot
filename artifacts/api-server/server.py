@@ -67,7 +67,10 @@ TSI_PERIOD           = 55     # Pearson r trend strength
 TSI_OVERSOLD         = -0.8
 TSI_OVERBOUGHT       =  0.8
 TSI_EXTREME_LOOKBACK = 20
-MOMENTUM_PERIOD      = 55     # bars for zero-cross confirmation
+MOMENTUM_PERIOD      = 55     # bars for momentum confirmation
+MACD_FAST            = 21     # MACD fast EMA period
+MACD_SLOW            = 36     # MACD slow EMA period
+MACD_SIGNAL          = 36     # MACD signal EMA period
 CACHE_TTL            = 60
 TRADE_COOLDOWN_SECS  = 300
 
@@ -154,23 +157,71 @@ def calc_tsi(closes: List[float], period: int = TSI_PERIOD) -> Dict:
 
 def calc_momentum(closes: List[float], period: int = MOMENTUM_PERIOD) -> Dict:
     """Simple momentum: close[i] - close[i-period].
-    Detects zero-cross on the two most recent bars — this is the trade trigger.
-      zero_cross_up   = prev < 0 and curr >= 0  (pullback ending in uptrend)
-      zero_cross_down = prev > 0 and curr <= 0  (pullback ending in downtrend)
+    Confirmation layer: momentum < 0 confirms uptrend pullback,
+                        momentum > 0 confirms downtrend pullback.
     """
     if len(closes) < period + 2:
-        return {"value": 0.0, "prev": 0.0,
-                "zero_cross_up": False, "zero_cross_down": False, "values": []}
+        return {"value": 0.0, "prev": 0.0, "values": []}
     values = [round(closes[i] - closes[i - period], 6)
               for i in range(period, len(closes))]
     curr = values[-1]
     prev = values[-2]
     return {
-        "value":           curr,
-        "prev":            prev,
-        "zero_cross_up":   prev < 0 and curr >= 0,
-        "zero_cross_down": prev > 0 and curr <= 0,
-        "values":          values[-100:],
+        "value":  curr,
+        "prev":   prev,
+        "values": values[-100:],
+    }
+
+
+def _ema(values: List[float], period: int) -> List[float]:
+    """Exponential moving average."""
+    if len(values) < period:
+        return []
+    k = 2.0 / (period + 1)
+    ema = [sum(values[:period]) / period]
+    for v in values[period:]:
+        ema.append(v * k + ema[-1] * (1 - k))
+    return ema
+
+
+def calc_macd(closes: List[float],
+              fast: int = MACD_FAST,
+              slow: int = MACD_SLOW,
+              signal: int = MACD_SIGNAL) -> Dict:
+    """MACD (fast, slow, signal) with crossover detection.
+      bullish_cross = MACD line crosses above signal line
+      bearish_cross = MACD line crosses below signal line
+    """
+    empty = {"macd": 0.0, "signal": 0.0, "hist": 0.0,
+             "bullish_cross": False, "bearish_cross": False,
+             "macd_values": [], "signal_values": [], "hist_values": []}
+    if len(closes) < slow + signal + 2:
+        return empty
+    fast_ema  = _ema(closes, fast)
+    slow_ema  = _ema(closes, slow)
+    # Align: fast_ema is longer, trim to match slow_ema length
+    offset    = len(fast_ema) - len(slow_ema)
+    macd_line = [round(fast_ema[i + offset] - slow_ema[i], 6)
+                 for i in range(len(slow_ema))]
+    sig_line  = _ema(macd_line, signal)
+    # Align macd_line to sig_line
+    m_offset  = len(macd_line) - len(sig_line)
+    macd_aligned = macd_line[m_offset:]
+    hist      = [round(macd_aligned[i] - sig_line[i], 6)
+                 for i in range(len(sig_line))]
+    if len(sig_line) < 2:
+        return empty
+    curr_macd, prev_macd = macd_aligned[-1], macd_aligned[-2]
+    curr_sig,  prev_sig  = sig_line[-1],     sig_line[-2]
+    return {
+        "macd":          round(curr_macd, 6),
+        "signal":        round(curr_sig,  6),
+        "hist":          round(hist[-1],  6),
+        "bullish_cross": prev_macd <= prev_sig and curr_macd > curr_sig,
+        "bearish_cross": prev_macd >= prev_sig and curr_macd < curr_sig,
+        "macd_values":   [round(v, 6) for v in macd_aligned[-100:]],
+        "signal_values": [round(v, 6) for v in sig_line[-100:]],
+        "hist_values":   [round(v, 6) for v in hist[-100:]],
     }
 
 
@@ -217,6 +268,7 @@ async def analyze_symbol(symbol: str, config: Dict) -> Optional[Dict]:
 
         tsi      = calc_tsi(closes, TSI_PERIOD)
         momentum = calc_momentum(closes, MOMENTUM_PERIOD)
+        macd     = calc_macd(closes)
 
         volatility = round(
             ((max(highs[-20:]) - min(lows[-20:])) / min(lows[-20:])) * 100, 1
@@ -275,6 +327,7 @@ async def analyze_symbol(symbol: str, config: Dict) -> Optional[Dict]:
             "structure":   structure,
             "tsi":         tsi,
             "momentum":    momentum,
+            "macd":        macd,
             "last_updated": datetime.utcnow().isoformat(),
         }
 
@@ -353,6 +406,8 @@ async def build_chart_data(symbol: str) -> Dict:
     spl = round(float(swing.spl), 4) if swing.spl else None
     coc = round(float(swing.coc), 4) if swing.coc else None
 
+    macd = calc_macd(closes)
+
     candle_data = [
         {"time": c["epoch"], "open": float(c["open"]), "high": float(c["high"]),
          "low": float(c["low"]), "close": float(c["close"])}
@@ -370,6 +425,7 @@ async def build_chart_data(symbol: str) -> Dict:
         "lh_level":     sph,
         "ll_level":     spl,
         "markers":      [],
+        "macd":         macd,
         "bar_count":    len(candles),
         "last_updated": datetime.utcnow().isoformat(),
     }
@@ -470,10 +526,16 @@ async def _place_multiplier_trade(symbol: str, contract_type: str) -> Dict:
 
 
 async def _trigger_trade_if_confirmed(sym: Dict) -> None:
-    """Trade conditions:
-      UPTREND:   TSI recently ≤ -0.8 (armed) + momentum crosses 0 upward   → MULTUP
-      DOWNTREND: TSI recently ≥ +0.8 (armed) + momentum crosses 0 downward → MULTDOWN
-    Both require state == PULLBACK (momentum zero-cross already fired).
+    """Trade conditions (all three must be met):
+      UPTREND:   1) TSI recently ≤ -0.8 (armed)
+                 2) MACD bullish crossover (fast crosses above signal)
+                 3) Momentum < 0 (price still in pullback)
+                 → MULTUP
+
+      DOWNTREND: 1) TSI recently ≥ +0.8 (armed)
+                 2) MACD bearish crossover (fast crosses below signal)
+                 3) Momentum > 0 (price still in pullback)
+                 → MULTDOWN
     """
     global _trade_log, _trade_cooldown
 
@@ -483,29 +545,37 @@ async def _trigger_trade_if_confirmed(sym: Dict) -> None:
     trend    = sym["trend"]
     tsi      = sym.get("tsi") or {}
     momentum = sym.get("momentum") or {}
+    macd     = sym.get("macd") or {}
     symbol   = sym["symbol"]
 
     tsi_val    = tsi.get("value", 0.0)
     tsi_series = tsi.get("values", [])
     recent_tsi = tsi_series[-TSI_EXTREME_LOOKBACK:] if tsi_series else []
+    mom_val    = momentum.get("value", 0.0)
+    macd_val   = macd.get("macd", 0.0)
+    sig_val    = macd.get("signal", 0.0)
 
     if trend == "UPTREND":
-        # TSI must have been oversold recently (pullback confirmed)
-        armed = any(v <= TSI_OVERSOLD for v in recent_tsi)
-        if not armed:
+        # 1) TSI must have been oversold recently
+        if not any(v <= TSI_OVERSOLD for v in recent_tsi):
             return
-        # Momentum just crossed from negative to positive
-        if not momentum.get("zero_cross_up"):
+        # 2) MACD bullish crossover
+        if not macd.get("bullish_cross"):
+            return
+        # 3) Momentum still below zero (price in pullback)
+        if mom_val >= 0:
             return
         contract_type = "MULTUP"
 
     elif trend == "DOWNTREND":
-        # TSI must have been overbought recently (pullback confirmed)
-        armed = any(v >= TSI_OVERBOUGHT for v in recent_tsi)
-        if not armed:
+        # 1) TSI must have been overbought recently
+        if not any(v >= TSI_OVERBOUGHT for v in recent_tsi):
             return
-        # Momentum just crossed from positive to negative
-        if not momentum.get("zero_cross_down"):
+        # 2) MACD bearish crossover
+        if not macd.get("bearish_cross"):
+            return
+        # 3) Momentum still above zero (price in pullback)
+        if mom_val <= 0:
             return
         contract_type = "MULTDOWN"
 
@@ -526,7 +596,9 @@ async def _trigger_trade_if_confirmed(sym: Dict) -> None:
         "contract_type": contract_type,
         "trend":         trend,
         "tsi":           round(tsi_val, 4),
-        "momentum":      round(momentum.get("value", 0), 6),
+        "momentum":      round(mom_val, 6),
+        "macd":          round(macd_val, 6),
+        "macd_signal":   round(sig_val, 6),
         "contract_id":   result.get("contract_id"),
         "ok":            result.get("ok", False),
         "error":         result.get("error"),
@@ -535,9 +607,8 @@ async def _trigger_trade_if_confirmed(sym: Dict) -> None:
     if len(_trade_log) > 50:
         _trade_log = _trade_log[:50]
 
-    mom_val = momentum.get("value", 0)
-    status  = f"✅ {result.get('contract_id')}" if result.get("ok") else f"❌ {result.get('error')}"
-    print(f"[TRADE] {symbol} {contract_type} | TSI {tsi_val:+.3f} | Mom {mom_val:+.4f} | {status}")
+    status = f"✅ {result.get('contract_id')}" if result.get("ok") else f"❌ {result.get('error')}"
+    print(f"[TRADE] {symbol} {contract_type} | TSI {tsi_val:+.3f} | MACD {macd_val:+.6f} | Mom {mom_val:+.4f} | {status}")
 
 
 # ──────────────────────────────────────────────────
