@@ -304,20 +304,18 @@ export default function Dashboard() {
                     </div>
 
                     <div className="space-y-0.5">
-                      <div className={`text-xs font-mono flex items-center gap-1.5 ${
-                        s.state === "PULLBACK" ? "text-green-400" : "text-muted-foreground"
-                      }`}>
-                        {s.state === "PULLBACK" ? "✓" : "✗"} Pullback (TSI slope opposes trend)
+                      <div className="text-xs font-mono flex items-center gap-1.5 text-green-400">
+                        ✓ SwingTrend {s.trend === "UPTREND" ? "UPTREND → BUY only" : "DOWNTREND → SELL only"}
                       </div>
                       <div className={`text-xs font-mono flex items-center gap-1.5 ${
                         tsiOk ? "text-green-400" : "text-muted-foreground"
                       }`}>
-                        {tsiOk ? "✓" : "✗"} TSI {s.trend === "UPTREND" ? "oversold" : "overbought"} ({s.tsi?.value.toFixed(3) ?? "—"})
+                        {tsiOk ? "✓" : "✗"} TSI {s.trend === "UPTREND" ? "≤ −0.8 (oversold)" : "≥ +0.8 (overbought)"} in last 20 bars — now {s.tsi?.value.toFixed(3) ?? "—"}
                       </div>
                       <div className={`text-xs font-mono flex items-center gap-1.5 ${
                         momOk ? "text-green-400" : "text-muted-foreground"
                       }`}>
-                        {momOk ? "✓" : "✗"} Momentum zero-cross {s.trend === "UPTREND" ? "upward" : "downward"}
+                        {momOk ? "✓" : "✗"} Momentum crossed zero {s.trend === "UPTREND" ? "↑ upward (pullback ended)" : "↓ downward (pullback ended)"}
                       </div>
                       {!ready && (
                         <div className="text-xs text-muted-foreground/50 font-mono pt-0.5">
