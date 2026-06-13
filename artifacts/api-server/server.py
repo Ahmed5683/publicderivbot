@@ -76,7 +76,7 @@ RETRACE_THRESHOLD  = 1.5
 SIDEWAYS_THRESHOLD = 20
 MINIMUM_BAR_COUNT  = 40
 ANALYSIS_CANDLES   = 200
-CHART_CANDLES      = 1000
+CHART_CANDLES      = 200
 
 _analysis_cache:      Optional[Dict] = None
 _analysis_cache_time: float = 0
@@ -417,7 +417,7 @@ def _get_otp_ws_url(account_id: str) -> Optional[str]:
 
 
 async def _place_multiplier_trade(symbol: str, contract_type: str) -> Dict:
-    """Place MULTUP or MULTDOWN — $1 stake, SL $0.50, TP $2.00."""
+    """Place MULTUP or MULTDOWN — $1 stake, SL $0.50, TP $1.00."""
     multiplier = SYMBOL_CONFIG[symbol]["multiplier"]
     try:
         account_id = _get_demo_account_id()
@@ -439,7 +439,7 @@ async def _place_multiplier_trade(symbol: str, contract_type: str) -> Dict:
                 "duration_unit":     "s",
                 "multiplier":        multiplier,
                 "underlying_symbol": symbol,
-                "limit_order":       {"stop_loss": 0.50, "take_profit": 2.00},
+                "limit_order":       {"stop_loss": 0.50, "take_profit": 1.00},
                 "req_id":            1,
             }))
             prop_resp = json.loads(await asyncio.wait_for(ws.recv(), timeout=15))
