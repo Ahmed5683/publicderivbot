@@ -63,11 +63,11 @@ SYMBOL_CONFIG = {
 }
 
 # ── Indicator settings ──────────────────────────────────────
-TSI_PERIOD           = 100    # Pearson r trend strength (raised from 55)
+TSI_PERIOD           = 100    # Pearson r trend strength
 TSI_OVERSOLD         = -0.8
 TSI_OVERBOUGHT       =  0.8
 TSI_EXTREME_LOOKBACK = 20
-MOMENTUM_PERIOD      = 14     # bars for zero-cross confirmation
+MOMENTUM_PERIOD      = 55     # bars for zero-cross confirmation
 CACHE_TTL            = 60
 TRADE_COOLDOWN_SECS  = 300
 
@@ -76,6 +76,7 @@ RETRACE_THRESHOLD  = 2.5
 SIDEWAYS_THRESHOLD = 20
 MINIMUM_BAR_COUNT  = 20
 LOOKBACK_CANDLES   = 300
+CHART_CANDLES      = 5000
 
 _analysis_cache:      Optional[Dict] = None
 _analysis_cache_time: float = 0
@@ -220,14 +221,19 @@ async def analyze_symbol(symbol: str, config: Dict) -> Optional[Dict]:
             ((max(highs[-20:]) - min(lows[-20:])) / min(lows[-20:])) * 100, 1
         ) if len(highs) >= 20 else 0.0
 
-        # State: PULLBACK when momentum zero-cross fires in the right direction
-        if trend == "UPTREND"   and momentum["zero_cross_up"]:
+        # State:
+        #   PULLBACK      = momentum < 0 in UPTREND (price pulling back) OR
+        #                   momentum > 0 in DOWNTREND (price pulling back up)
+        #   IN_TREND      = trend active but no current pullback
+        #   CONSOLIDATION = SwingTrend reports sideways
+        mom_val = momentum["value"]
+        if trend == "UPTREND" and mom_val < 0:
             state = "PULLBACK"
-            desc  = (f"Pullback ▲ end | Momentum ×0↑ {momentum['prev']:+.4f}→{momentum['value']:+.4f}"
+            desc  = (f"Pullback ▲ | Momentum {mom_val:+.4f} (neg = pulling back)"
                      f" | TSI {tsi['value']:+.3f} | CoC {coc}")
-        elif trend == "DOWNTREND" and momentum["zero_cross_down"]:
+        elif trend == "DOWNTREND" and mom_val > 0:
             state = "PULLBACK"
-            desc  = (f"Pullback ▼ end | Momentum ×0↓ {momentum['prev']:+.4f}→{momentum['value']:+.4f}"
+            desc  = (f"Pullback ▼ | Momentum {mom_val:+.4f} (pos = pulling back)"
                      f" | TSI {tsi['value']:+.3f} | CoC {coc}")
         elif swing.is_sideways:
             state = "CONSOLIDATION"
@@ -236,7 +242,7 @@ async def analyze_symbol(symbol: str, config: Dict) -> Optional[Dict]:
             state = "IN_TREND"
             trend_arrow = "▲" if trend == "UPTREND" else "▼" if trend == "DOWNTREND" else "—"
             desc  = (f"In trend {trend_arrow} | SPH {sph} · SPL {spl} · CoC {coc}"
-                     f" | Momentum {momentum['value']:+.4f} | TSI {tsi['value']:+.3f}")
+                     f" | Momentum {mom_val:+.4f} | TSI {tsi['value']:+.3f}")
 
         structure = {
             "trend":           trend,
@@ -318,7 +324,7 @@ async def run_full_analysis() -> Dict:
 
 
 async def build_chart_data(symbol: str) -> Dict:
-    candles = await fetch_candles_ws(symbol, 500)
+    candles = await fetch_candles_ws(symbol, CHART_CANDLES)
 
     highs  = [float(c["high"])  for c in candles]
     lows   = [float(c["low"])   for c in candles]
