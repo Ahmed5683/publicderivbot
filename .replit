@@ -45,11 +45,11 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd artifacts/dashboard && PORT=3000 BASE_PATH=/ pnpm run dev"
-waitForPort = 3000
+args = "cd artifacts/dashboard && PORT=5000 BASE_PATH=/ pnpm run dev"
+waitForPort = 5000
 
 [agent]
-stack = "PNPM_WORKSPACE"
+stack = "BEST_EFFORT_FALLBACK"
 expertMode = true
 
 [postMerge]
@@ -63,6 +63,10 @@ externalPort = 3002
 [[ports]]
 localPort = 3001
 externalPort = 3001
+
+[[ports]]
+localPort = 5000
+externalPort = 5000
 
 [[ports]]
 localPort = 8080
