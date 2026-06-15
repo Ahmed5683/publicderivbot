@@ -10,9 +10,8 @@ import { CandleChart } from "@/components/CandleChart";
 import type { SymbolAnalysis } from "@workspace/api-client-react";
 
 const ALL_SYMBOLS = [
-  "1HZ10V","R_10","1HZ25V","R_25",
-  "1HZ50V","R_50","1HZ75V","R_75",
-  "1HZ100V","R_100",
+  "CRASH500","CRASH600","CRASH900","CRASH1000",
+  "BOOM500","BOOM600","BOOM900","BOOM1000",
 ];
 
 const STATE_COLOR: Record<string, string> = {
@@ -249,7 +248,7 @@ export default function SymbolDetail() {
 
       {/* ── Footer ────────────────────────────────────────────── */}
       <div className="px-5 pb-5 text-[10px] font-mono text-[#4b5563]">
-        TSI(76) = Pearson r (−1 to +1) · Oversold &lt; −0.8 · Overbought &gt; +0.8 ·
+        TSI(50) = Pearson r (−1 to +1) · Oversold &lt; −0.8 · Overbought &gt; +0.8 ·
         Momentum(36) = close[i] − close[i−36] · MACD(21,36,36) crossover = primary trigger ·
         Momentum &lt; 0 in UPTREND / &gt; 0 in DOWNTREND = confirmation ·
         UPTREND: HH (Higher High) + HL (Higher Low) · DOWNTREND: LH (Lower High) + LL (Lower Low) · Dots mark fractal pivots on chart

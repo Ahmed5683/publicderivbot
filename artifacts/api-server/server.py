@@ -27,30 +27,20 @@ API_BASE = "https://api.derivws.com/trading/v1/options"
 _ws_semaphore = asyncio.Semaphore(15)
 
 SYMBOL_CONFIG = {
-    # Volatility Indices
-    "1HZ10V":    {"multiplier": 400,  "name": "Volatility 10"},
-    "R_10":      {"multiplier": 400,  "name": "Volatility 10 (1s)"},
-    # 1HZ15V removed — Deriv: not offered for multipliers
-    "1HZ25V":    {"multiplier": 160,  "name": "Volatility 25"},
-    "R_25":      {"multiplier": 160,  "name": "Volatility 25 (1s)"},
-    # 1HZ30V removed — Deriv: not offered for multipliers
-    "1HZ50V":    {"multiplier": 80,   "name": "Volatility 50"},
-    "R_50":      {"multiplier": 80,   "name": "Volatility 50 (1s)"},
-    "1HZ75V":    {"multiplier": 50,   "name": "Volatility 75"},
-    "R_75":      {"multiplier": 50,   "name": "Volatility 75 (1s)"},
-    # 1HZ90V removed — Deriv: not offered for multipliers
-    "1HZ100V":   {"multiplier": 40,   "name": "Volatility 100"},
-    "R_100":     {"multiplier": 40,   "name": "Volatility 100 (1s)"},
-    # Jump Indices
-    "JD10":      {"multiplier": 100,  "name": "Jump 10"},
-    "JD25":      {"multiplier": 50,   "name": "Jump 25"},
-    "JD50":      {"multiplier": 20,   "name": "Jump 50"},
-    "JD75":      {"multiplier": 15,   "name": "Jump 75"},
-    "JD100":     {"multiplier": 10,   "name": "Jump 100"},
+    # Crash Indices
+    "CRASH500":  {"multiplier": 300, "name": "Crash 500"},
+    "CRASH600":  {"multiplier": 400, "name": "Crash 600"},
+    "CRASH900":  {"multiplier": 400, "name": "Crash 900"},
+    "CRASH1000": {"multiplier": 400, "name": "Crash 1000"},
+    # Boom Indices
+    "BOOM500":   {"multiplier": 300, "name": "Boom 500"},
+    "BOOM600":   {"multiplier": 400, "name": "Boom 600"},
+    "BOOM900":   {"multiplier": 400, "name": "Boom 900"},
+    "BOOM1000":  {"multiplier": 300, "name": "Boom 1000"},
 }
 
 # ── Indicator settings ──────────────────────────────────────
-TSI_PERIOD          = 76     # Pearson r trend strength
+TSI_PERIOD          = 50     # Pearson r trend strength
 TSI_OVERSOLD        = -0.8
 TSI_OVERBOUGHT      =  0.8
 MOMENTUM_PERIOD     = 36     # bars for momentum confirmation
@@ -775,7 +765,7 @@ if _FRONTEND.exists():
 @app.on_event("startup")
 async def start_background_scanner():
     async def _loop():
-        print("[SCANNER] Background scanner started — Fractals(18) + TSI(76) + MACD(21,36,36) + Momentum(36)")
+        print("[SCANNER] Background scanner started — Fractals(18) + TSI(50) + MACD(21,36,36) + Momentum(36)")
         while True:
             tick_start = time.time()
             try:

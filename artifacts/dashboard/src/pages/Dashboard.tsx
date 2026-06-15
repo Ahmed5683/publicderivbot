@@ -133,7 +133,7 @@ export default function Dashboard() {
             DERIV MARKET SCANNER
           </h1>
           <p className="text-xs text-muted-foreground font-mono mt-0.5">
-            SwingTrend · TSI Pearson r(100) · SPH/SPL/CHoCH · 1000 candles · Auto-trading active
+            Fractals(18) · TSI(50) · MACD(21,36,36) · Momentum(36) · 1000 candles · Auto-trading active
           </p>
         </div>
 
@@ -305,7 +305,7 @@ export default function Dashboard() {
 
                     <div className="space-y-0.5">
                       <div className="text-xs font-mono flex items-center gap-1.5 text-green-400">
-                        ✓ SwingTrend {s.trend === "UPTREND" ? "UPTREND → BUY only" : "DOWNTREND → SELL only"}
+                        ✓ Fractals {s.trend === "UPTREND" ? "UPTREND → BUY only" : "DOWNTREND → SELL only"}
                       </div>
                       <div className={`text-xs font-mono flex items-center gap-1.5 ${
                         tsiOk ? "text-green-400" : "text-muted-foreground"
@@ -398,7 +398,7 @@ export default function Dashboard() {
         )}
 
         <div className="text-xs font-mono text-muted-foreground border-t border-border pt-4">
-          TSI = Pearson r (−1 to +1) · Oversold &lt; −0.8 · Overbought &gt; +0.8 · SwingTrend retrace=5% ·
+          TSI(50) = Pearson r (−1 to +1) · Oversold &lt; −0.8 · Overbought &gt; +0.8 · Fractals(18) ·
           SPH = Swing Point High · SPL = Swing Point Low · CHoCH = Change of Character (reversal level) ·
           Trade = PULLBACK + TSI extreme (recent 20 bars) + Momentum zero-cross · SL $0.50 · TP $2.00
         </div>

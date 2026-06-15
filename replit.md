@@ -34,8 +34,8 @@ A real-time trading dashboard for Deriv synthetic volatility indices using Bill 
 
 ## Product
 
-- Real-time scanner for 13 Deriv synthetic volatility indices
-- Detects: PULLBACK (potential entries), BOS (Break of Structure), CHoCH (Change of Character), IN_TREND, CONSOLIDATION
+- Real-time scanner for 8 Deriv Crash/Boom indices
+- Detects: PULLBACK (potential entries), BOS (Break of Structure), CHoCH (Change of Character), IN_TREND
 - Summary cards with counts per signal type
 - Per-symbol detail page: 1000-candle chart with fractal support/resistance levels, TSI subplot, MACD subplot
 - Auto-refreshes every 60 seconds
@@ -45,9 +45,11 @@ A real-time trading dashboard for Deriv synthetic volatility indices using Bill 
 - Python backend (uses python-deriv-api, not Node.js)
 - Fractal period = 18 each side (Deriv "Fractals 36" = 36-bar total window)
 - MACD settings = (21, 55, 21)
-- TSI = Trend Strength Index (NOT True Strength Index), period 76
-- 1000 candles for chart, 500 candles for trend detection
+- TSI = Trend Strength Index (NOT True Strength Index), period 50
+- MACD settings = (21, 36, 36)
 - Momentum period = 36
+- 1000 candles for chart, 500 candles for trend detection
+- Symbols: CRASH500, CRASH600, CRASH900, CRASH1000, BOOM500, BOOM600, BOOM900, BOOM1000
 
 ## Gotchas
 
