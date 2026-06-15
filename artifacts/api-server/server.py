@@ -51,7 +51,7 @@ CACHE_TTL           = 60
 TRADE_COOLDOWN_SECS = 300
 
 # ── Fractal settings ─────────────────────────────────────────
-FRACTAL_PERIOD     = 18      # bars each side (36-bar total window)
+FRACTAL_PERIOD     = 12      # bars each side (24-bar total window)
 CHOCH_SWING_PERIOD = 5       # short swing for CHoCH confirmation
 ANALYSIS_CANDLES   = 500
 CHART_CANDLES      = 1000
@@ -765,7 +765,7 @@ if _FRONTEND.exists():
 @app.on_event("startup")
 async def start_background_scanner():
     async def _loop():
-        print("[SCANNER] Background scanner started — Fractals(18) + TSI(50) + MACD(21,36,36) + Momentum(36)")
+        print(f"[SCANNER] Background scanner started — Fractals({FRACTAL_PERIOD}) + TSI({TSI_PERIOD}) + MACD({MACD_FAST},{MACD_SLOW},{MACD_SIGNAL}) + Momentum({MOMENTUM_PERIOD})")
         while True:
             tick_start = time.time()
             try:
