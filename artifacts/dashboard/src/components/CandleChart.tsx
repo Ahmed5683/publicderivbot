@@ -4,9 +4,10 @@ import type { Candle, FractalMarker } from "@workspace/api-client-react";
 interface CandleChartProps {
   candles:         Candle[];
   markers?:        FractalMarker[];
-  sphLevel?:       number | null;
-  splLevel?:       number | null;
-  cocLevel?:       number | null;
+  hhLevel?:        number | null;
+  hlLevel?:        number | null;
+  lhLevel?:        number | null;
+  llLevel?:        number | null;
   trend?:          string;
   tsiValues?:      number[];
   momentumValues?: number[];
@@ -14,6 +15,22 @@ interface CandleChartProps {
   signalValues?:   number[];
   histValues?:     number[];
 }
+
+const MARKER_COLORS: Record<string, string> = {
+  HH: "#22c55e",
+  HL: "#4ade80",
+  LH: "#ef4444",
+  LL: "#fca5a5",
+};
+
+const LEVEL_STYLE: Record<string, { color: string; dash: number[] }> = {
+  HH: { color: "#22c55e", dash: [] },
+  HL: { color: "#22c55e", dash: [5, 5] },
+  LH: { color: "#ef4444", dash: [] },
+  LL: { color: "#ef4444", dash: [5, 5] },
+};
+
+const DOT_R = 4;
 
 const C = {
   bg:         "#0d1117",
@@ -28,7 +45,6 @@ const C = {
   momLine:    "#f59e0b",
   macdLine:   "#818cf8",   // indigo — MACD fast line
   sigLine:    "#fb923c",   // orange — signal line
-  cocColor:   "#a78bfa",
   scrollBg:   "rgba(255,255,255,0.08)",
   scrollFg:   "rgba(255,255,255,0.30)",
 };
@@ -45,7 +61,8 @@ function mapY(v: number, lo: number, hi: number, top: number, h: number) {
 
 export function CandleChart({
   candles,
-  sphLevel, splLevel, cocLevel,
+  markers = [],
+  hhLevel, hlLevel, lhLevel, llLevel,
   trend = "",
   tsiValues    = [],
   momentumValues = [],
@@ -82,6 +99,8 @@ export function CandleChart({
 
   const visStart = start;
   const visEnd   = start + n;
+
+  const visibleMarkers = markers.filter(m => m.index >= start && m.index < start + n);
 
   // Helper: compute visible slice of an indicator array aligned to candles
   function alignIndicator(arr: number[]) {
@@ -156,16 +175,15 @@ export function CandleChart({
     // ── Level lines ───────────────────────────────────────────
     type LevelEntry = { label: string; price: number; color: string; dash: number[] };
     const levels: LevelEntry[] = [];
-    if (trend === "UPTREND") {
-      if (sphLevel != null) levels.push({ label: "SPH", price: sphLevel, color: C.bull, dash: [] });
-      if (cocLevel != null) levels.push({ label: "CoC", price: cocLevel, color: C.cocColor, dash: [5, 4] });
-    } else if (trend === "DOWNTREND") {
-      if (splLevel != null) levels.push({ label: "SPL", price: splLevel, color: C.bear, dash: [] });
-      if (cocLevel != null) levels.push({ label: "CoC", price: cocLevel, color: C.cocColor, dash: [5, 4] });
-    } else {
-      if (sphLevel != null) levels.push({ label: "SPH", price: sphLevel, color: C.bull, dash: [] });
-      if (splLevel != null) levels.push({ label: "SPL", price: splLevel, color: C.bear, dash: [] });
-      if (cocLevel != null) levels.push({ label: "CoC", price: cocLevel, color: C.cocColor, dash: [5, 4] });
+    const levelMap: Record<string, number | null | undefined> = {
+      HH: hhLevel, HL: hlLevel, LH: lhLevel, LL: llLevel,
+    };
+    for (const key of ["HH", "HL", "LH", "LL"] as const) {
+      const price = levelMap[key];
+      if (price != null) {
+        const { color, dash } = LEVEL_STYLE[key];
+        levels.push({ label: key, price, color, dash });
+      }
     }
 
     const pMax0    = Math.max(...visible.map(c => c.high));
@@ -214,6 +232,29 @@ export function CandleChart({
       ctx.fillStyle = col;
       ctx.fillRect(i * cw + (cw - bw) / 2, Math.min(openY, closeY), bw, Math.max(Math.abs(closeY - openY), 1));
       ctx.globalAlpha = 1;
+    }
+
+    // ── Fractal marker dots ──────────────────────────────────
+    for (const m of visibleMarkers) {
+      const ci     = m.index - start;
+      const cv     = visible[ci];
+      if (!cv) continue;
+      const cx     = ci * cw + cw / 2;
+      const col    = MARKER_COLORS[m.type] ?? "#ffffff";
+      const isHigh = m.type === "HH" || m.type === "LH";
+      const dotY   = isHigh
+        ? mapY(cv.high, pMin, pMax, MAIN_TOP, MAIN_H) - DOT_R * 2.5
+        : mapY(cv.low,  pMin, pMax, MAIN_TOP, MAIN_H) + DOT_R * 2.5;
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(cx, dotY, DOT_R, 0, Math.PI * 2);
+      ctx.fill();
+      if (cw > 6) {
+        ctx.fillStyle = col;
+        ctx.font      = "bold 8px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(m.type, cx, isHigh ? dotY - DOT_R - 2 : dotY + DOT_R + 9);
+      }
     }
 
     // ── Crosshair ─────────────────────────────────────────────
@@ -443,7 +484,7 @@ export function CandleChart({
       );
     }
   }, [visible, n, clampedOff, total, maxOff,
-      sphLevel, splLevel, cocLevel, trend,
+      markers, visibleMarkers, hhLevel, hlLevel, lhLevel, llLevel, trend,
       vTsi, vMom, vMacd, vSig, vHist,
       hasTsi, hasMom, hasMacd,
       tsiVisOff, momVisOff, macdVisOff, sigVisOff, histVisOff,

@@ -79,18 +79,19 @@ export default function SymbolDetail() {
   const legendItems =
     trend === "UPTREND"
       ? [
-          { label: "SPH", desc: "Swing Point High",  color: "#22c55e" },
-          { label: "CoC", desc: "Change of Character", color: "#a78bfa" },
+          { label: "HH", desc: "Higher High", color: "#22c55e" },
+          { label: "HL", desc: "Higher Low",  color: "#4ade80" },
         ]
       : trend === "DOWNTREND"
       ? [
-          { label: "SPL", desc: "Swing Point Low",   color: "#ef4444" },
-          { label: "CoC", desc: "Change of Character", color: "#a78bfa" },
+          { label: "LH", desc: "Lower High",  color: "#ef4444" },
+          { label: "LL", desc: "Lower Low",   color: "#fca5a5" },
         ]
       : [
-          { label: "SPH", desc: "Swing Point High",  color: "#22c55e" },
-          { label: "SPL", desc: "Swing Point Low",   color: "#ef4444" },
-          { label: "CoC", desc: "Change of Character", color: "#a78bfa" },
+          { label: "HH", desc: "Higher High", color: "#22c55e" },
+          { label: "HL", desc: "Higher Low",  color: "#4ade80" },
+          { label: "LH", desc: "Lower High",  color: "#ef4444" },
+          { label: "LL", desc: "Lower Low",   color: "#fca5a5" },
         ];
 
   // Momentum pullback note
@@ -178,14 +179,14 @@ export default function SymbolDetail() {
       {symData && (
         <div className="px-5 pb-2 flex flex-wrap gap-2">
           <StatPill label="Volatility"    value={`${symData.volatility.toFixed(1)}%`} color="text-foreground" />
-          {symData.sph && (
-            <StatPill label="SPH" value={symData.sph.toFixed(4)} color="text-green-400" />
+          {symData.resistance && (
+            <StatPill label="Resistance" value={(symData.resistance as number).toFixed(4)} color="text-red-400" />
           )}
-          {symData.spl && (
-            <StatPill label="SPL" value={symData.spl.toFixed(4)} color="text-red-400" />
+          {symData.support && (
+            <StatPill label="Support" value={(symData.support as number).toFixed(4)} color="text-green-400" />
           )}
-          {symData.coc && (
-            <StatPill label="CoC" value={symData.coc.toFixed(4)} color="text-purple-400" />
+          {(symData as any).fractal_count != null && (
+            <StatPill label="Fractals" value={String((symData as any).fractal_count)} color="text-[#9ca3af]" />
           )}
           {tsi && (
             <StatPill
@@ -230,9 +231,11 @@ export default function SymbolDetail() {
           ) : (
             <CandleChart
               candles={chart?.candles ?? []}
-              sphLevel={chart?.sph}
-              splLevel={chart?.spl}
-              cocLevel={chart?.coc}
+              markers={(chart as any)?.markers ?? []}
+              hhLevel={(chart as any)?.hh_level}
+              hlLevel={(chart as any)?.hl_level}
+              lhLevel={(chart as any)?.lh_level}
+              llLevel={(chart as any)?.ll_level}
               trend={trend}
               tsiValues={tsi?.values ?? []}
               momentumValues={momentum?.values ?? []}
@@ -249,7 +252,7 @@ export default function SymbolDetail() {
         TSI(55) = Pearson r (−1 to +1) · Oversold &lt; −0.8 · Overbought &gt; +0.8 ·
         Momentum(55) = close[i] − close[i−55] · MACD(21,36,36) crossover = primary trigger ·
         Momentum &lt; 0 in UPTREND / &gt; 0 in DOWNTREND = confirmation ·
-        UPTREND chart shows SPH + CoC · DOWNTREND chart shows SPL + CoC
+        UPTREND: HH (Higher High) + HL (Higher Low) · DOWNTREND: LH (Lower High) + LL (Lower Low) · Dots mark fractal pivots on chart
       </div>
     </div>
   );
