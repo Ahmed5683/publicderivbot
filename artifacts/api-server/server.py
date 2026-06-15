@@ -7,8 +7,6 @@ import urllib.request
 import urllib.error
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-import pandas as pd
-from swingtrend import Swing
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -52,22 +50,21 @@ SYMBOL_CONFIG = {
 }
 
 # ── Indicator settings ──────────────────────────────────────
-TSI_PERIOD           = 55     # Pearson r trend strength
-TSI_OVERSOLD         = -0.8
-TSI_OVERBOUGHT       =  0.8
-MOMENTUM_PERIOD      = 55     # bars for momentum confirmation
-MACD_FAST            = 21     # MACD fast EMA period
-MACD_SLOW            = 36     # MACD slow EMA period
-MACD_SIGNAL          = 36     # MACD signal EMA period
-CACHE_TTL            = 60
-TRADE_COOLDOWN_SECS  = 300
+TSI_PERIOD          = 55     # Pearson r trend strength
+TSI_OVERSOLD        = -0.8
+TSI_OVERBOUGHT      =  0.8
+MOMENTUM_PERIOD     = 55     # bars for momentum confirmation
+MACD_FAST           = 21
+MACD_SLOW           = 36
+MACD_SIGNAL         = 36
+CACHE_TTL           = 60
+TRADE_COOLDOWN_SECS = 300
 
-# ── SwingTrend settings ─────────────────────────────────────
-RETRACE_THRESHOLD  = 1.5
-SIDEWAYS_THRESHOLD = 20
-MINIMUM_BAR_COUNT  = 40
-ANALYSIS_CANDLES   = 200
-CHART_CANDLES      = 200
+# ── Fractal settings ─────────────────────────────────────────
+FRACTAL_PERIOD     = 18      # bars each side (36-bar total window)
+CHOCH_SWING_PERIOD = 5       # short swing for CHoCH confirmation
+ANALYSIS_CANDLES   = 500
+CHART_CANDLES      = 1000
 
 _analysis_cache:      Optional[Dict] = None
 _analysis_cache_time: float = 0
@@ -214,13 +211,141 @@ def calc_macd(closes: List[float],
 
 
 # ──────────────────────────────────────────────────
+# Fractals
+# ──────────────────────────────────────────────────
+
+def get_fractals(highs: List[float], lows: List[float],
+                 period: int = FRACTAL_PERIOD) -> List[Dict]:
+    out: List[Dict] = []
+    n = len(highs)
+    for i in range(period, n - period):
+        if all(highs[i] > highs[i - j] and highs[i] > highs[i + j]
+               for j in range(1, period + 1)):
+            out.append({"type": "RESISTANCE", "index": i, "price": round(highs[i], 4)})
+        if all(lows[i] < lows[i - j] and lows[i] < lows[i + j]
+               for j in range(1, period + 1)):
+            out.append({"type": "SUPPORT", "index": i, "price": round(lows[i], 4)})
+    return out
+
+
+def classify_fractals(fractals: List[Dict]) -> List[Dict]:
+    highs = sorted([f for f in fractals if f["type"] == "RESISTANCE"], key=lambda x: x["index"])
+    lows  = sorted([f for f in fractals if f["type"] == "SUPPORT"],    key=lambda x: x["index"])
+    result: List[Dict] = []
+    for i, f in enumerate(highs):
+        label = "HH" if i == 0 or f["price"] > highs[i - 1]["price"] else "LH"
+        result.append({"index": f["index"], "price": f["price"], "type": label})
+    for i, f in enumerate(lows):
+        label = "HL" if i == 0 or f["price"] > lows[i - 1]["price"] else "LL"
+        result.append({"index": f["index"], "price": f["price"], "type": label})
+    return sorted(result, key=lambda x: x["index"])
+
+
+def get_key_levels(classified: List[Dict]) -> Dict[str, Optional[float]]:
+    levels: Dict[str, Optional[float]] = {"HH": None, "HL": None, "LH": None, "LL": None}
+    for f in classified:
+        levels[f["type"]] = f["price"]
+    return levels
+
+
+def get_structural_swing(highs: List[float], lows: List[float],
+                          period: int = CHOCH_SWING_PERIOD) -> Dict[str, Optional[float]]:
+    n = len(highs)
+    last_swing_high: Optional[float] = None
+    last_swing_low:  Optional[float] = None
+    for i in range(period, n - period):
+        if all(highs[i] > highs[i - j] and highs[i] > highs[i + j]
+               for j in range(1, period + 1)):
+            last_swing_high = round(highs[i], 4)
+        if all(lows[i] < lows[i - j] and lows[i] < lows[i + j]
+               for j in range(1, period + 1)):
+            last_swing_low = round(lows[i], 4)
+    return {"swing_high": last_swing_high, "swing_low": last_swing_low}
+
+
+def filter_by_trend(classified: List[Dict], trend: str) -> List[Dict]:
+    keep = ("HH", "HL") if trend == "UPTREND" else ("LH", "LL")
+    return [f for f in classified if f["type"] in keep]
+
+
+def get_trend(classified: List[Dict]) -> str:
+    highs = [f for f in classified if f["type"] in ("HH", "LH")]
+    lows  = [f for f in classified if f["type"] in ("HL", "LL")]
+    if not highs or not lows:
+        return "UPTREND"
+    rh = highs[-1]["type"]
+    rl = lows[-1]["type"]
+    if rh == "HH" and rl == "HL":
+        return "UPTREND"
+    if rh == "LH" and rl == "LL":
+        return "DOWNTREND"
+    if highs[-1]["index"] >= lows[-1]["index"]:
+        return "UPTREND" if rh == "HH" else "DOWNTREND"
+    return "UPTREND" if rl == "HL" else "DOWNTREND"
+
+
+def detect_state(price: float, classified: List[Dict], tsi_values: List[float],
+                 structural_swing: Optional[Dict] = None) -> Dict[str, Any]:
+    if not classified:
+        return {"state": "IN_TREND", "trend": "UPTREND",
+                "bos_level": None, "choch_level": None,
+                "description": "No fractal structure yet"}
+
+    trend    = get_trend(classified)
+    filtered = filter_by_trend(classified, trend)
+    levels   = get_key_levels(filtered)
+    hh, hl, lh, ll = levels["HH"], levels["HL"], levels["LH"], levels["LL"]
+    tsi_now  = tsi_values[-1] if tsi_values else 0.0
+    sw       = structural_swing or {}
+
+    if trend == "UPTREND":
+        if hh is not None and price > hh:
+            return {"state": "BOS_CONTINUATION", "trend": "UPTREND",
+                    "bos_level": hh, "choch_level": None,
+                    "description": f"BOS ▲ Broke HH {hh:.4f} · Price {price:.4f} · Uptrend continuation"}
+        choch_support = hl or sw.get("swing_low")
+        if choch_support is not None and price < choch_support:
+            return {"state": "CHoCH_REVERSAL", "trend": "DOWNTREND",
+                    "bos_level": None, "choch_level": choch_support,
+                    "description": f"CHoCH ▼ Broke {choch_support:.4f} · Uptrend → Downtrend"}
+        swing_high = sw.get("swing_high") or hh
+        if swing_high is not None and price < swing_high:
+            sup = f" · support {choch_support:.4f}" if choch_support else ""
+            return {"state": "PULLBACK", "trend": "UPTREND",
+                    "bos_level": None, "choch_level": None,
+                    "description": f"Pullback ▲ {price:.4f} below peak {swing_high:.4f} · TSI {tsi_now:+.3f}{sup}"}
+        return {"state": "IN_TREND", "trend": "UPTREND",
+                "bos_level": None, "choch_level": None,
+                "description": f"Uptrend · HH {hh or '—'} · HL {hl or '—'}"}
+    else:
+        if ll is not None and price < ll:
+            return {"state": "BOS_CONTINUATION", "trend": "DOWNTREND",
+                    "bos_level": ll, "choch_level": None,
+                    "description": f"BOS ▼ Broke LL {ll:.4f} · Price {price:.4f} · Downtrend continuation"}
+        choch_resistance = lh or sw.get("swing_high")
+        if choch_resistance is not None and price > choch_resistance:
+            return {"state": "CHoCH_REVERSAL", "trend": "UPTREND",
+                    "bos_level": None, "choch_level": choch_resistance,
+                    "description": f"CHoCH ▲ Broke {choch_resistance:.4f} · Downtrend → Uptrend"}
+        swing_low = sw.get("swing_low") or ll
+        if swing_low is not None and price > swing_low:
+            res = f" · resistance {choch_resistance:.4f}" if choch_resistance else ""
+            return {"state": "PULLBACK", "trend": "DOWNTREND",
+                    "bos_level": None, "choch_level": None,
+                    "description": f"Pullback ▼ {price:.4f} above trough {swing_low:.4f} · TSI {tsi_now:+.3f}{res}"}
+        return {"state": "IN_TREND", "trend": "DOWNTREND",
+                "bos_level": None, "choch_level": None,
+                "description": f"Downtrend · LH {lh or '—'} · LL {ll or '—'}"}
+
+
+# ──────────────────────────────────────────────────
 # Analysis
 # ──────────────────────────────────────────────────
 
 async def analyze_symbol(symbol: str, config: Dict) -> Optional[Dict]:
     try:
         candles = await fetch_candles_ws(symbol, ANALYSIS_CANDLES)
-        if len(candles) < 120:
+        if len(candles) < FRACTAL_PERIOD * 2 + 10:
             return None
 
         highs  = [float(c["high"])  for c in candles]
@@ -228,95 +353,54 @@ async def analyze_symbol(symbol: str, config: Dict) -> Optional[Dict]:
         closes = [float(c["close"]) for c in candles]
         price  = closes[-1]
 
-        df = pd.DataFrame({
-            "datetime": [pd.Timestamp(c["epoch"], unit="s") for c in candles],
-            "open":  [float(c["open"]) for c in candles],
-            "high":  highs,
-            "low":   lows,
-            "close": closes,
-        })
-        df.set_index("datetime", inplace=True)
-
-        # SwingTrend — official library
-        swing = Swing(
-            retrace_threshold_pct=RETRACE_THRESHOLD,
-            sideways_threshold=SIDEWAYS_THRESHOLD,
-            minimum_bar_count=MINIMUM_BAR_COUNT,
-        )
-        swing.run(sym=symbol, df=df)
-
-        raw_trend = swing.trend  # "UP" | "DOWN" | None
-        trend     = ("UPTREND"   if raw_trend == "UP"
-                     else "DOWNTREND" if raw_trend == "DOWN"
-                     else "SIDEWAYS")
-
-        sph = round(float(swing.sph), 4) if swing.sph else None
-        spl = round(float(swing.spl), 4) if swing.spl else None
-        coc = round(float(swing.coc), 4) if swing.coc else None
+        fractals         = get_fractals(highs, lows, FRACTAL_PERIOD)
+        classified       = classify_fractals(fractals)
+        structural_swing = get_structural_swing(highs, lows, CHOCH_SWING_PERIOD)
 
         tsi      = calc_tsi(closes, TSI_PERIOD)
         momentum = calc_momentum(closes, MOMENTUM_PERIOD)
         macd     = calc_macd(closes)
 
+        state_info = detect_state(price, classified, tsi["values"], structural_swing)
+        trend      = state_info["trend"]
+
+        filtered   = filter_by_trend(classified, trend)
+        levels     = get_key_levels(filtered)
+        support    = levels["HL"] if trend == "UPTREND" else levels["LL"]
+        resistance = levels["HH"] if trend == "UPTREND" else levels["LH"]
+
         volatility = round(
             ((max(highs[-20:]) - min(lows[-20:])) / min(lows[-20:])) * 100, 1
         ) if len(highs) >= 20 else 0.0
 
-        # State:
-        #   PULLBACK      = momentum < 0 in UPTREND (price pulling back) OR
-        #                   momentum > 0 in DOWNTREND (price pulling back up)
-        #   IN_TREND      = trend active but no current pullback
-        #   CONSOLIDATION = SwingTrend reports sideways
-        mom_val = momentum["value"]
-        if trend == "UPTREND" and mom_val < 0:
-            state = "PULLBACK"
-            desc  = (f"Pullback ▲ | Momentum {mom_val:+.4f} (neg = pulling back)"
-                     f" | TSI {tsi['value']:+.3f} | CoC {coc}")
-        elif trend == "DOWNTREND" and mom_val > 0:
-            state = "PULLBACK"
-            desc  = (f"Pullback ▼ | Momentum {mom_val:+.4f} (pos = pulling back)"
-                     f" | TSI {tsi['value']:+.3f} | CoC {coc}")
-        elif swing.is_sideways:
-            state = "CONSOLIDATION"
-            desc  = f"Sideways | SPH {sph} · SPL {spl}"
-        else:
-            state = "IN_TREND"
-            trend_arrow = "▲" if trend == "UPTREND" else "▼" if trend == "DOWNTREND" else "—"
-            desc  = (f"In trend {trend_arrow} | SPH {sph} · SPL {spl} · CoC {coc}"
-                     f" | Momentum {mom_val:+.4f} | TSI {tsi['value']:+.3f}")
-
         structure = {
             "trend":           trend,
-            "sph":             sph,
-            "spl":             spl,
-            "coc":             coc,
-            "last_resistance": sph,
-            "last_support":    spl,
-            "bos_level":       None,
-            "choch_level":     coc,
-            "description":     desc,
+            "last_resistance": resistance,
+            "last_support":    support,
+            "bos_level":       state_info.get("bos_level"),
+            "choch_level":     state_info.get("choch_level"),
+            "description":     state_info["description"],
         }
 
         return {
-            "symbol":      symbol,
-            "name":        config["name"],
-            "price":       round(price, 4),
-            "volatility":  volatility,
-            "state":       state,
-            "trend":       trend,
-            "sph":         sph,
-            "spl":         spl,
-            "coc":         coc,
-            "support":     spl,
-            "resistance":  sph,
-            "bos_level":   None,
-            "choch_level": coc,
-            "description": desc,
-            "structure":   structure,
-            "tsi":         tsi,
-            "momentum":    momentum,
-            "macd":        macd,
-            "last_updated": datetime.utcnow().isoformat(),
+            "symbol":        symbol,
+            "name":          config["name"],
+            "price":         round(price, 4),
+            "volatility":    volatility,
+            "state":         state_info["state"],
+            "trend":         trend,
+            "fractal_count": len(fractals),
+            "support":       support,
+            "resistance":    resistance,
+            "bos_level":     state_info.get("bos_level"),
+            "choch_level":   state_info.get("choch_level"),
+            "description":   state_info["description"],
+            "structure":     structure,
+            "tsi":           tsi,
+            "momentum":      momentum,
+            "macd":          macd,
+            "last_fractals": filtered[-4:],
+            "last_updated":  datetime.utcnow().isoformat(),
         }
 
     except Exception as e:
@@ -349,7 +433,7 @@ async def run_full_analysis() -> Dict:
     await asyncio.gather(*[_trigger_trade_if_confirmed(r) for r in results])
 
     counts: Dict[str, int] = {
-        "PULLBACK": 0, "IN_TREND": 0, "CONSOLIDATION": 0,
+        "PULLBACK": 0, "BOS_CONTINUATION": 0, "CHoCH_REVERSAL": 0, "IN_TREND": 0,
     }
     for r in results:
         counts[r["state"]] = counts.get(r["state"], 0) + 1
@@ -357,10 +441,10 @@ async def run_full_analysis() -> Dict:
     return {
         "timestamp":           datetime.utcnow().isoformat(),
         "pullback_count":      counts["PULLBACK"],
-        "bos_count":           0,
-        "choch_count":         0,
+        "bos_count":           counts["BOS_CONTINUATION"],
+        "choch_count":         counts["CHoCH_REVERSAL"],
         "trending_count":      counts["IN_TREND"],
-        "consolidation_count": counts["CONSOLIDATION"],
+        "consolidation_count": 0,
         "symbols":             results,
     }
 
@@ -372,27 +456,11 @@ async def build_chart_data(symbol: str) -> Dict:
     lows   = [float(c["low"])   for c in candles]
     closes = [float(c["close"]) for c in candles]
 
-    df = pd.DataFrame({
-        "datetime": [pd.Timestamp(c["epoch"], unit="s") for c in candles],
-        "open":  [float(c["open"]) for c in candles],
-        "high":  highs, "low": lows, "close": closes,
-    })
-    df.set_index("datetime", inplace=True)
-    swing = Swing(
-        retrace_threshold_pct=RETRACE_THRESHOLD,
-        sideways_threshold=SIDEWAYS_THRESHOLD,
-        minimum_bar_count=MINIMUM_BAR_COUNT,
-    )
-    swing.run(sym=symbol, df=df)
-
-    raw_trend = swing.trend
-    trend     = ("UPTREND"   if raw_trend == "UP"
-                 else "DOWNTREND" if raw_trend == "DOWN"
-                 else "SIDEWAYS")
-
-    sph = round(float(swing.sph), 4) if swing.sph else None
-    spl = round(float(swing.spl), 4) if swing.spl else None
-    coc = round(float(swing.coc), 4) if swing.coc else None
+    raw_fractals = get_fractals(highs, lows, FRACTAL_PERIOD)
+    all_markers  = classify_fractals(raw_fractals)
+    trend        = get_trend(all_markers)
+    markers      = filter_by_trend(all_markers, trend)
+    levels       = get_key_levels(markers)
 
     macd = calc_macd(closes)
 
@@ -405,14 +473,11 @@ async def build_chart_data(symbol: str) -> Dict:
         "symbol":       symbol,
         "trend":        trend,
         "candles":      candle_data,
-        "sph":          sph,
-        "spl":          spl,
-        "coc":          coc,
-        "hh_level":     sph,
-        "hl_level":     spl,
-        "lh_level":     sph,
-        "ll_level":     spl,
-        "markers":      [],
+        "markers":      markers,
+        "hh_level":     levels["HH"],
+        "hl_level":     levels["HL"],
+        "lh_level":     levels["LH"],
+        "ll_level":     levels["LL"],
         "macd":         macd,
         "bar_count":    len(candles),
         "last_updated": datetime.utcnow().isoformat(),
@@ -710,7 +775,7 @@ if _FRONTEND.exists():
 @app.on_event("startup")
 async def start_background_scanner():
     async def _loop():
-        print("[SCANNER] Background scanner started — SwingTrend + TSI(55) + Momentum")
+        print("[SCANNER] Background scanner started — Fractals(18) + TSI(55) + MACD(21,36,36) + Momentum(55)")
         while True:
             tick_start = time.time()
             try:
