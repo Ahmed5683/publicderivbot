@@ -50,10 +50,10 @@ SYMBOL_CONFIG = {
 }
 
 # ── Indicator settings ──────────────────────────────────────
-TSI_PERIOD          = 55     # Pearson r trend strength
+TSI_PERIOD          = 76     # Pearson r trend strength
 TSI_OVERSOLD        = -0.8
 TSI_OVERBOUGHT      =  0.8
-MOMENTUM_PERIOD     = 55     # bars for momentum confirmation
+MOMENTUM_PERIOD     = 36     # bars for momentum confirmation
 MACD_FAST           = 21
 MACD_SLOW           = 36
 MACD_SIGNAL         = 36

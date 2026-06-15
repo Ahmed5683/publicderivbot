@@ -45,8 +45,9 @@ A real-time trading dashboard for Deriv synthetic volatility indices using Bill 
 - Python backend (uses python-deriv-api, not Node.js)
 - Fractal period = 18 each side (Deriv "Fractals 36" = 36-bar total window)
 - MACD settings = (21, 55, 21)
-- TSI = Trend Strength Index (NOT True Strength Index), period 55
+- TSI = Trend Strength Index (NOT True Strength Index), period 76
 - 1000 candles for chart, 500 candles for trend detection
+- Momentum period = 36
 
 ## Gotchas
 
