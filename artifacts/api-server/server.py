@@ -49,20 +49,6 @@ SYMBOL_CONFIG = {
     "JD50":      {"multiplier": 20,   "name": "Jump 50"},
     "JD75":      {"multiplier": 15,   "name": "Jump 75"},
     "JD100":     {"multiplier": 10,   "name": "Jump 100"},
-    # Forex Pairs
-    "FRXAUDJPY": {"multiplier": 500,  "name": "AUD/JPY"},
-    "FRXAUDUSD": {"multiplier": 500,  "name": "AUD/USD"},
-    "FRXEURAUD": {"multiplier": 800,  "name": "EUR/AUD"},
-    "FRXEURCAD": {"multiplier": 800,  "name": "EUR/CAD"},
-    "FRXEURCHF": {"multiplier": 500,  "name": "EUR/CHF"},
-    "FRXEURGBP": {"multiplier": 800,  "name": "EUR/GBP"},
-    "FRXEURJPY": {"multiplier": 500,  "name": "EUR/JPY"},
-    "FRXEURUSD": {"multiplier": 800,  "name": "EUR/USD"},
-    "FRXGBPUSD": {"multiplier": 800,  "name": "GBP/USD"},
-    "FRXGBPJPY": {"multiplier": 800,  "name": "GBP/JPY"},
-    "FRXGBPAUD": {"multiplier": 800,  "name": "GBP/AUD"},
-    "FRXUSDCAD": {"multiplier": 800,  "name": "USD/CAD"},
-    "FRXUSDCHF": {"multiplier": 500,  "name": "USD/CHF"},
 }
 
 # ── Indicator settings ──────────────────────────────────────
