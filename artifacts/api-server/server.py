@@ -51,7 +51,7 @@ CACHE_TTL           = 60
 TRADE_COOLDOWN_SECS = 300
 
 # ── Fractal settings ─────────────────────────────────────────
-FRACTAL_PERIOD     = 15      # bars each side (30-bar total window)
+FRACTAL_PERIOD     = 12      # bars each side (24-bar total window)
 CHOCH_SWING_PERIOD = 5       # short swing for CHoCH confirmation
 ANALYSIS_CANDLES   = 500
 CHART_CANDLES      = 1000
