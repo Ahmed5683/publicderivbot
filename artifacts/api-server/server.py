@@ -775,7 +775,7 @@ if _FRONTEND.exists():
 @app.on_event("startup")
 async def start_background_scanner():
     async def _loop():
-        print("[SCANNER] Background scanner started — Fractals(18) + TSI(55) + MACD(21,36,36) + Momentum(55)")
+        print("[SCANNER] Background scanner started — Fractals(18) + TSI(76) + MACD(21,36,36) + Momentum(36)")
         while True:
             tick_start = time.time()
             try:

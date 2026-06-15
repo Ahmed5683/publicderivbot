@@ -197,7 +197,7 @@ export default function SymbolDetail() {
           )}
           {momentum && (
             <StatPill
-              label={`Momentum(55)${isPullback ? " ◀ PULLBACK" : ""}`}
+              label={`Momentum(36)${isPullback ? " ◀ PULLBACK" : ""}`}
               value={`${momVal >= 0 ? "+" : ""}${momVal.toFixed(4)}`}
               color={isPullback
                 ? (trend === "UPTREND" ? "text-amber-400" : "text-amber-400")
@@ -249,8 +249,8 @@ export default function SymbolDetail() {
 
       {/* ── Footer ────────────────────────────────────────────── */}
       <div className="px-5 pb-5 text-[10px] font-mono text-[#4b5563]">
-        TSI(55) = Pearson r (−1 to +1) · Oversold &lt; −0.8 · Overbought &gt; +0.8 ·
-        Momentum(55) = close[i] − close[i−55] · MACD(21,36,36) crossover = primary trigger ·
+        TSI(76) = Pearson r (−1 to +1) · Oversold &lt; −0.8 · Overbought &gt; +0.8 ·
+        Momentum(36) = close[i] − close[i−36] · MACD(21,36,36) crossover = primary trigger ·
         Momentum &lt; 0 in UPTREND / &gt; 0 in DOWNTREND = confirmation ·
         UPTREND: HH (Higher High) + HL (Higher Low) · DOWNTREND: LH (Lower High) + LL (Lower Low) · Dots mark fractal pivots on chart
       </div>

@@ -292,7 +292,7 @@ export function CandleChart({
       ctx.strokeStyle = C.axis; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(0, TSI_TOP); ctx.lineTo(chartW, TSI_TOP); ctx.stroke();
       ctx.fillStyle = C.textBrt; ctx.font = "bold 9px monospace"; ctx.textAlign = "left";
-      ctx.fillText("TSI(55) · Pearson r", 4, TSI_TOP + 11);
+      ctx.fillText("TSI(76) · Pearson r", 4, TSI_TOP + 11);
 
       for (const { v, label, alpha, dash } of [
         { v:  0.8, label: "+0.8", alpha: "66", dash: [4, 3] },
@@ -334,7 +334,7 @@ export function CandleChart({
       ctx.strokeStyle = C.axis; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(0, MOM_TOP); ctx.lineTo(chartW, MOM_TOP); ctx.stroke();
       ctx.fillStyle = C.textBrt; ctx.font = "bold 9px monospace"; ctx.textAlign = "left";
-      ctx.fillText("Momentum(55)", 4, MOM_TOP + 11);
+      ctx.fillText("Momentum(36)", 4, MOM_TOP + 11);
       const momAbsMax = Math.max(...vMom.map(Math.abs), 0.0001);
       const mHi =  momAbsMax * 1.1;
       const mLo = -momAbsMax * 1.1;
